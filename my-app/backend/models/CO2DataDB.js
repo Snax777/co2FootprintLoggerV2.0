@@ -5,7 +5,7 @@ config();
 
 let dbInstance = null;
 let clientInstance = null;
-const dbName = "CO2Data";
+const dbName = "CO2DataDB";
 let url = `${process.env.MONGODB_URI}`;
 
 async function connectToCO2DataDB() {

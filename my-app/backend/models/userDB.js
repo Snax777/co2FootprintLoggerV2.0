@@ -5,7 +5,7 @@ config();
 
 let dbInstance = null;
 let clientInstance = null;
-const dbName = "User";
+const dbName = "UserDB";
 let url = `${process.env.MONGODB_URI}`;
 
 async function connectToUserDB() {
@@ -22,7 +22,6 @@ async function connectToUserDB() {
 
     return dbInstance;
     } catch (error) {
-        console.error("Connection to Database failed: ", error);
         await clientInstance.close();
 
         clientInstance = null;
@@ -38,3 +37,5 @@ async function closeUserDBConnection() {
     clientInstance = null;
     dbInstance = null;
 }
+
+export {connectToUserDB, closeUserDBConnection as closeUserDB};
