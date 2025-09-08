@@ -1,6 +1,6 @@
 import Router from "express";
 import { connectToCO2DataDB, closeCO2DataDB, co2DataDB } from "../models/CO2DataDB";
-import config from "dotenv";
+import { config } from "dotenv";
 import { validationResult } from "express-validator";
 import pino from "pino";
 import jwt from "jsonwebtoken";
@@ -19,7 +19,7 @@ if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET has no value');
 }
 
-router.post('/api/data', async (req, res, next) => {
+router.post('/', async (req, res, next) => {
     try {
         const authHeader = req.header('Authorization');
 
@@ -46,7 +46,7 @@ router.post('/api/data', async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/sendData' POST request: ", errors.array());
+            logger.error("Validation error(s) in the '/' POST request: ", errors.array());
 
             return res.status(400).json({error: errors.array()});
         }
@@ -166,7 +166,7 @@ router.post('/api/data', async (req, res, next) => {
     }
 });
 
-router.get('/api/data', async (req, res, next) => {
+router.get('/search', async (req, res, next) => {
     try {
         const authHeader = req.header('Authorization');
 
@@ -194,7 +194,7 @@ router.get('/api/data', async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/getData' GET request: ", errors.array());
+            logger.error("Validation error(s) in the '/search' GET request: ", errors.array());
 
             return res.status(400).json({error: errors.array()});
         }
@@ -205,6 +205,14 @@ router.get('/api/data', async (req, res, next) => {
 
         const startDate = getUTC(req.query.startDate)[0];
         const endDate = getUTC(req.query.endDate)[0];
+
+        if ((!startDate || !endDate) || (startDate > endDate)) {
+            logger.error("User did not provide valid data range");
+
+            return res.status(400).json({
+                message: "Provide a valid date range (startDate <= endDate)",
+            });
+        }
 
         const co2Data = await db.collection('co2Data');
         const findUserCO2Data = await co2Data.find({
@@ -234,7 +242,7 @@ router.get('/api/data', async (req, res, next) => {
     }
 });
 
-router.get('/api/data/leaderboard/:period', async (req, res, next) => {
+router.get('/leaderboard/search', async (req, res, next) => {
     try {
         const authHeader = req.header('Authorization');
 
@@ -262,7 +270,7 @@ router.get('/api/data/leaderboard/:period', async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/api/data/leaderboard' GET request: ", errors.array());
+            logger.error("Validation error(s) in the '/leaderboard/search' GET request: ", errors.array());
 
             return res.status(400).json({error: errors.array()});
         }
@@ -278,12 +286,12 @@ router.get('/api/data/leaderboard/:period', async (req, res, next) => {
         if ((!startDate || !endDate) || (startDate > endDate)) {
             logger.error("User did not provide valid data range");
 
-            res.status(400).json({
+            return res.status(400).json({
                 message: "Provide a valid date range (startDate <= endDate)",
             });
         }
 
-        const aggregatedPipeline = [
+        const aggregationPipeline = [
             {
                 $match: {utcDate: {$gte: startDate, $lte: endDate}},
             }, 
@@ -291,13 +299,13 @@ router.get('/api/data/leaderboard/:period', async (req, res, next) => {
                 $group: {
                     _id: "$email",
                     username: {$first: "$username"},
-                    totalCO2: {$sum: "totalCO2"},
+                    totalCO2: {$sum: "$totalCO2"},
                     recordCount: {$sum: 1},
                 }
             }, 
             {
                 $addFields: {
-                    averageCO2: [{$divide: ["$totalCO2", "$recordCount"]}, 2],
+                    averageCO2: {$round: [{$divide: ["$totalCO2", "$recordCount"]}, 2]},
                 }
             }, 
             {
@@ -319,7 +327,7 @@ router.get('/api/data/leaderboard/:period', async (req, res, next) => {
             }
         ]
 
-        const aggregatedData = await co2Data.aggregate(aggregatedPipeline).toArray();
+        const aggregatedData = await co2Data.aggregate(aggregationPipeline).toArray();
 
         return res.status(200).json({
             message: "Aggregation process complete",
@@ -330,7 +338,99 @@ router.get('/api/data/leaderboard/:period', async (req, res, next) => {
 
         next(error);
     } finally {
-        logger.info("Closing connection to 'CO2DataDB' databse");
+        logger.info("Closing connection to 'CO2DataDB' database");
+
+        await closeCO2DataDB();
+    }
+});
+
+router.get("/averageCO2/search", async (req, res, next) => {
+    try {
+        const authHeader = req.header('Authorization');
+
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            logger.error("Access denied. No token provided");
+
+            return res.status(401).json({
+                message: "Access denied. No token provided"
+            });
+        }
+
+        const token = authHeader.replace('Bearer ', '');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const userId = decoded.user.id;
+        const userEmail = decoded.user.email;
+
+        if (!userId || !userEmail) {
+            logger.error("User not logged in or missing email");
+
+            return res.status(400).json({
+                message: "User not logged in or properly authenticated",
+            });
+        }
+
+        const errors = validationResult(req);
+
+        if (!errors.isEmpty()) {
+            logger.error("Validation error(s) in the '/averageCO2/search' GET request: ", errors.array());
+
+            return res.status(400).json({error: errors.array()});
+        }
+
+        const db = await co2DataDB();
+
+        logger.info("Server connected to 'CO2DataDB' database");
+
+        const startDate = getUTC(req.query.startDate)[0];
+        const endDate = getUTC(req.query.endDate)[0];
+        const co2Data = await db.collection('co2Data');
+
+        if ((!startDate || !endDate) || (startDate > endDate)) {
+            logger.error("User did not provide valid data range");
+
+            return res.status(400).json({
+                message: "Provide a valid date range (startDate <= endDate)",
+            });
+        }
+
+        const aggregationPipeline = [
+            {$match: {utcDate: {$gte: startDate, $lte: endDate}}},
+            {
+                $group: {
+                    _id: null,
+                    totalCO2: {$sum: "$totalCO2"},
+                    totalRecords: {$sum: 1},
+                    activeUsers: {$addToSet: "$email"},
+                }
+            }, 
+            {
+                $addFields: {
+                    averageCO2: {$round: [{$divide: ["$totalCO2", "$totalRecords"]}, 2]},
+                    activeUsersCount: {$size: "$activeUsers"},
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    totalCO2: 1,
+                    averageCO2: 1,
+                    totalRecords: 1,
+                    activeUsersCount: 1,
+                }
+            },
+        ];
+
+        const aggregatedData = await co2Data.aggregate(aggregationPipeline).toArray();
+
+        return res.status(200).json({
+            message: "Aggregation process complete",
+            data: aggregatedData,
+        });
+    } catch (error) {
+        logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
+        next(error);
+    } finally {
+        logger.info("Closing connection to 'CO2DataDB' database");
 
         await closeCO2DataDB();
     }

@@ -1,6 +1,6 @@
 import Router from "express";
 import { connectToUserDB, closeUserDB } from "../models/userDB";
-import config from "dotenv";
+import { config } from "dotenv";
 import bcryptjs from "bcryptjs";
 import pino from "pino";
 import jwt from "jsonwebtoken";
@@ -12,16 +12,16 @@ import { co2DataDB, closeCO2DataDB } from "../models/CO2DataDB";
 const router = Router();
 const logger = pino();
 
-config.config();
+config();
 
 const currentDate = new Date();
 
-router.post('/api/account/register', async (req, res, next) => {
+router.post('/register', async (req, res, next) => {
     try {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/api/account/register' POST request: ", errors.array());
+            logger.error("Validation error(s) in the '/register' POST request: ", errors.array());
 
             return res.status(400).json({error: errors.array()});
         }
@@ -78,12 +78,12 @@ router.post('/api/account/register', async (req, res, next) => {
     }
 });
 
-router.post('/api/account/login', async (req, res, next) => {
+router.post('/login', async (req, res, next) => {
     try {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/api/account/login' POST request: ", errors.array());
+            logger.error("Validation error(s) in the '/login' POST request: ", errors.array());
 
             return res.status(400).json({error: errors.array()});
         }
@@ -143,12 +143,12 @@ router.post('/api/account/login', async (req, res, next) => {
     }
 });
 
-router.put('/api/account/update', async (req, res, next) => {
+router.put('/update', async (req, res, next) => {
     try {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/api/account/update' PUT request: ", errors.array());
+            logger.error("Validation error(s) in the '/update' PUT request: ", errors.array());
 
             return res.status(400).json({error: errors.array()});
         }
@@ -219,8 +219,16 @@ router.put('/api/account/update', async (req, res, next) => {
     }
 });
 
-router.delete('/api/account/delete', async (req, res, next) => {
+router.delete('/delete', async (req, res, next) => {
     try {
+        const errors = validationResult(req);
+        
+        if (!errors.isEmpty()) {
+            logger.error("Validation error(s) in the '/delete' DELETE request: ", errors.array());
+        
+            return res.status(400).json({error: errors.array()});
+        }
+        
         const authHeader = req.header('Authorization');
         
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -242,14 +250,6 @@ router.delete('/api/account/delete', async (req, res, next) => {
             return res.status(400).json({
                 message: "User not logged in or properly authenticated",
             });
-        }
-        
-        const errors = validationResult(req);
-        
-        if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/api/account/delete' DELETE request: ", errors.array());
-        
-            return res.status(400).json({error: errors.array()});
         }
 
         if (!req.body.password) {
