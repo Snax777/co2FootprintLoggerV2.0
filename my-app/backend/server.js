@@ -2,10 +2,9 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import pino from "pino";
-import mongoSanitize from "express-mongo-sanitize";
 import { config } from "dotenv";
-import { dataRoutes } from "./routes/dataRoutes";
-import { userRoutes } from "./routes/userRoutes";
+import { dataRoutes } from "./routes/dataRoutes.js";
+import { userRoutes } from "./routes/userRoutes.js";
 
 config();
 
@@ -14,14 +13,14 @@ const server = express();
 const logger = pino();
 
 server.use(express.json());
+server.use(express.urlencoded({extended: true}));
 server.use(helmet());
 server.use(cors());
-server.use(mongoSanitize());
 
 server.use('/api/account', userRoutes);
 server.use('/api/data', dataRoutes);
 server.use((error, req, res, next) => {
-    logger.error("Error: ", error);
+    logger.error("Error: ", next(error));
     res.status(500).send('Internal Server Error');
 });
 

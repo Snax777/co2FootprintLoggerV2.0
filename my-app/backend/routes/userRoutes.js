@@ -1,13 +1,13 @@
 import Router from "express";
-import { connectToUserDB, closeUserDB } from "../models/userDB";
+import { connectToUserDB } from "../models/userDB.js";
 import { config } from "dotenv";
 import bcryptjs from "bcryptjs";
 import pino from "pino";
 import jwt from "jsonwebtoken";
-import validationResult from "express-validator";
+import { validationResult } from "express-validator";
 import { ObjectId } from "mongodb";
-import { getUTC } from "../../util/dateTimeToUTCConverter";
-import { co2DataDB, closeCO2DataDB } from "../models/CO2DataDB";
+import { getUTC } from "../../util/dateTimeToUTCConverter.js";
+import { co2DataDB } from "../models/CO2DataDB.js";
 
 const router = Router();
 const logger = pino();
@@ -22,6 +22,7 @@ router.post('/register', async (req, res, next) => {
 
         if (!errors.isEmpty()) {
             logger.error("Validation error(s) in the '/register' POST request: ", errors.array());
+            console.error("Validation error(s) in the '/register' POST request: ", errors.array());
 
             return res.status(400).json({error: errors.array()});
         }
@@ -37,7 +38,7 @@ router.post('/register', async (req, res, next) => {
         const email = req.body.email;
         const salt = await bcryptjs.genSalt();
         const hash = await bcryptjs.hash(req.body.password, salt);
-        const existingUser = await collection.findOne({username, email});
+        const existingUser = await collection.findOne({$or: [{username: username}, {email: email}]});
         const date = getUTC(currentDate)[0];
         const data = {
             name: name,
@@ -51,6 +52,7 @@ router.post('/register', async (req, res, next) => {
 
         if (existingUser) {
             logger.error(`User with email ${email} already exists.`);
+            console.error(`User with email ${email} already exists.`);
             res.status(404).json(
                 {message: `User with email ${email} already exists.`}
             );
@@ -60,7 +62,9 @@ router.post('/register', async (req, res, next) => {
         const payload = {
             user: {id: newUser.insertedId},
         };
-        const authtoken = jwt.sign(payload, process.env.JWT_SECRET);
+        const authtoken = jwt.sign(payload, process.env.JWT_SECRET, {
+            expiresIn: "1h"
+        });
 
         logger.info(`User with email ${email} registered successfully`);
         return res.status(200).json({
@@ -71,10 +75,6 @@ router.post('/register', async (req, res, next) => {
     } catch (error) {
         logger.error("Server failed to connect to 'UserDB' database: ", error.message);
         next(error);
-    } finally {
-        logger.info("Closing connection to 'UserDB' database");
-
-        await closeUserDB();
     }
 });
 
@@ -84,6 +84,7 @@ router.post('/login', async (req, res, next) => {
 
         if (!errors.isEmpty()) {
             logger.error("Validation error(s) in the '/login' POST request: ", errors.array());
+            console.error("Validation error(s) in the '/login' POST request: ", errors.array());
 
             return res.status(400).json({error: errors.array()});
         }
@@ -93,18 +94,18 @@ router.post('/login', async (req, res, next) => {
         logger.info("Server connected to 'UserDB' database");
 
         const collection = db.collection("users");
-        const email = req.body.email;
         const password = req.body.password;
         const date = getUTC(currentDate)[0];
-        const existingUser = collection.findOne({email});
+        const existingUser = await collection.findOne({email: req.body.email});
 
         if (!existingUser) {
             logger.error(
-                `User with email ${email} does not exist`
+                `User with email ${req.body.email} does not exist`
             );
+            console.error(`User with email ${req.body.email} does not exist`);
 
             return res.status(404).json({
-                message: `User with email ${email} does not exist`,
+                message: `User with email ${req.body.email} does not exist`,
             });
         } else {
             const result = await bcryptjs.compare(password, existingUser.password);
@@ -118,28 +119,30 @@ router.post('/login', async (req, res, next) => {
             }
 
             const updateLoginInDate = await collection.findOneAndUpdate(
-                {email},
+                {email: req.body.email},
                 {$set: {loggedInAt: date}},
             );
             const payload = {
-                user: {id: updateLoginInDate.value._id},
+                user: {
+                    id: updateLoginInDate._id.toString(), 
+                    email: req.body.email,
+                },
             };
-            const authtoken = jwt.sign(payload, process.env.JWT_SECRET);
+            const authtoken = jwt.sign(payload, process.env.JWT_SECRET, {
+                expiresIn: "1h"
+            });
 
             logger.info(`User ${existingUser.username} logged in successfully`);
             return res.status(200).json({
                 message: `User ${existingUser.username} logged in successfully`,
-                email,
+                email: req.body.email,
                 authtoken,
+                expiresIn: "1h"
             });
         }
     } catch (error) {
         logger.error("Server failed to connect to 'UserDB' database: ", error.message);
         next(error);
-    } finally {
-        logger.info("Closing connection to 'UserDB' database");
-
-        await closeUserDB();
     }
 });
 
@@ -171,7 +174,7 @@ router.put('/update', async (req, res, next) => {
 
         logger.info("Server connected to 'UserDB' database");
 
-        const collection = await db.collection("users");
+        const collection = db.collection("users");
         const currentUser = await collection.findOne({_id: new ObjectId(userId)});
         const result = await bcryptjs.compare(req.body.oldPassword, currentUser.password);
         const date = getUTC(currentDate)[0];
@@ -212,10 +215,6 @@ router.put('/update', async (req, res, next) => {
     } catch (error) {
         logger.error("Server failed to connect to 'UserDB' database: ", error.message);
         next(error);
-    } finally {
-        logger.info("Closing connection to 'UserDB' database");
-
-        await closeUserDB();
     }
 });
 
@@ -240,7 +239,9 @@ router.delete('/delete', async (req, res, next) => {
         }
         
         const token = authHeader.replace('Bearer ', '');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+            expiresIn: "1h"
+        });
         const userId = decoded.user.id;
         const userEmail = decoded.user.email;
         
@@ -322,11 +323,6 @@ router.delete('/delete', async (req, res, next) => {
     } catch (error) {
         logger.error("Server failed to connect to 'UserDB' & 'CO2UserDB' databases: ", error.message);
         next(error);
-    } finally {
-        logger.info("Closing connection to 'UserDB' & 'CO2UserDB' databases");
-
-        await closeUserDB();
-        await closeCO2DataDB();
     }
 });
 

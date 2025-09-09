@@ -1,42 +1,27 @@
 import { MongoClient } from "mongodb";
 import { config } from "dotenv";
+import { pino } from "pino";
 
 config();
 
-let dbInstance = null;
-let clientInstance = null;
-const dbName = "CO2DataDB";
 let url = `${process.env.MONGODB_URI}`;
+const logger = pino();
 
 async function connectToCO2DataDB() {
-    if (dbInstance) {
-        return dbInstance;
-    }
-
-    clientInstance = new MongoClient(url);
+    const clientInstance = new MongoClient(url);
 
     try {
-    await clientInstance.connect();
+        await clientInstance.connect();
 
-    dbInstance = clientInstance.db(dbName);
+        const dbInstance = clientInstance.db("co2Data");
 
-    return dbInstance;
+        return dbInstance;
     } catch (error) {
-        console.error("Connection to Database failed: ", error);
+        logger.error("Connection to Database failed: ", error);
         await clientInstance.close();
 
-        clientInstance = null;
-        
         throw error;
     }
 }
 
-async function closeCO2DataDBConnection() {
-    if (clientInstance) {
-        await clientInstance.close();
-    }
-    clientInstance = null;
-    dbInstance = null;
-}
-
-export {connectToCO2DataDB as co2DataDB, closeCO2DataDBConnection as closeCO2DataDB};
+export {connectToCO2DataDB as co2DataDB};

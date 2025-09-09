@@ -1,10 +1,10 @@
 import Router from "express";
-import { connectToCO2DataDB, closeCO2DataDB, co2DataDB } from "../models/CO2DataDB";
+import { co2DataDB } from "../models/CO2DataDB.js";
 import { config } from "dotenv";
 import { validationResult } from "express-validator";
 import pino from "pino";
 import jwt from "jsonwebtoken";
-import { getUTC } from "../../util/dateTimeToUTCConverter";
+import { getUTC } from "../../util/dateTimeToUTCConverter.js";
 
 const router = Router();
 const logger = pino();
@@ -32,10 +32,13 @@ router.post('/', async (req, res, next) => {
         }
 
         const token = authHeader.replace('Bearer ', '');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+            expiresIn: "1h"
+        });
         const userId = decoded.user.id;
+        const userEmail = decoded.user.email;
 
-        if (!userId) {
+        if (!userId || !userEmail) {
             logger.error("User not logged in");
 
             return res.status(400).json({
@@ -51,11 +54,10 @@ router.post('/', async (req, res, next) => {
             return res.status(400).json({error: errors.array()});
         }
 
-        const db = await connectToCO2DataDB();
+        const db = await co2DataDB();
 
         logger.info("Server connected to 'CO2DataDB' database");
 
-        const email = req.body.email;
         const newCO2Data = Array.isArray(req.body.data) ? req.body.data : [req.body.data];
         const totalCO2 = req.body.totalCO2;
         const currentDate = req.body.currentDate;
@@ -67,28 +69,20 @@ router.post('/', async (req, res, next) => {
 
         prevDate = getUTC(prevDate)[0];
 
-        if (decoded.user.email !== email) {
-            logger.error("User not authorized to modify data");
-
-            return res.status(403).json({
-                message: "User not authorized to modify data",
-            });
-        }
-
         const co2Data = await db.collection("co2Data");
         const existingCO2Data = await co2Data.findOne({
-            email, 
+            email: userEmail, 
             utcDate: utcDateAndTime[0],
         });
         const previousCO2Data = await co2Data.findOne({
-            email,
+            email: userEmail,
             utcDate: prevDate,
         });
 
         if (!existingCO2Data) {
             const addNewCO2Data = await co2Data.insertOne({
                 username: req.body.username,
-                email,
+                email: userEmail,
                 localDate,
                 utcDate: utcDateAndTime[0],
                 createdAt: utcDateAndTime,
@@ -121,7 +115,7 @@ router.post('/', async (req, res, next) => {
                     let newStreak = Math.min(previousCO2Data.loggingStreak + 1, 7);
 
                     const updateNewCO2Data = await co2Data.findOneAndUpdate(
-                        {email, utcDate: utcDateAndTime[0]}, 
+                        {email: userEmail, utcDate: utcDateAndTime[0]}, 
                         {$set: {loggingStreak: newStreak}},
                         {returnDocument: "after"},
                     );
@@ -134,14 +128,14 @@ router.post('/', async (req, res, next) => {
                 
             }
 
-            logger.info(`CO2 data of user ${req.body.username} successfully added`);
+            logger.info(`CO2 data successfully added`);
             return res.status(201).json({
                 message: "New data added successfully",
                 id: addNewCO2Data.insertedId,
             });
         } else {
             const updateCO2Data = await co2Data.findOneAndUpdate(
-                {email, utcDate: utcDateAndTime[0]},
+                {email: userEmail, utcDate: utcDateAndTime[0]},
                 {
                     $set: {updatedAt: utcDateAndTime},
                     $push: { co2Data: {$each: newCO2Data}},
@@ -159,10 +153,6 @@ router.post('/', async (req, res, next) => {
     } catch (error) {
         logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
         next(error);
-    } finally {
-        logger.info("Closing connection to 'CO2DataDB' database");
-
-        await closeCO2DataDB();
     }
 });
 
@@ -179,7 +169,9 @@ router.get('/search', async (req, res, next) => {
         }
 
         const token = authHeader.replace('Bearer ', '');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET,  {
+            expiresIn: "1h"
+        });
         const userId = decoded.user.id;
         const userEmail = decoded.user.email;
 
@@ -199,7 +191,7 @@ router.get('/search', async (req, res, next) => {
             return res.status(400).json({error: errors.array()});
         }
 
-        const db = await connectToCO2DataDB();
+        const db = await co2DataDB();
 
         logger.info("Server connected to 'CO2DataDB' database");
 
@@ -235,10 +227,6 @@ router.get('/search', async (req, res, next) => {
     } catch (error) {
         logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
         next(error);
-    } finally {
-        logger.info("Closing connection to 'CO2DataDB' database");
-
-        await closeCO2DataDB();
     }
 });
 
@@ -255,7 +243,9 @@ router.get('/leaderboard/search', async (req, res, next) => {
         }
 
         const token = authHeader.replace('Bearer ', '');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+            expiresIn: "1h"
+        });
         const userId = decoded.user.id;
         const userEmail = decoded.user.email;
 
@@ -337,10 +327,6 @@ router.get('/leaderboard/search', async (req, res, next) => {
         logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
 
         next(error);
-    } finally {
-        logger.info("Closing connection to 'CO2DataDB' database");
-
-        await closeCO2DataDB();
     }
 });
 
@@ -357,7 +343,9 @@ router.get("/averageCO2/search", async (req, res, next) => {
         }
 
         const token = authHeader.replace('Bearer ', '');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+            expiresIn: "1h"
+        });
         const userId = decoded.user.id;
         const userEmail = decoded.user.email;
 
@@ -425,14 +413,11 @@ router.get("/averageCO2/search", async (req, res, next) => {
         return res.status(200).json({
             message: "Aggregation process complete",
             data: aggregatedData,
+            period: startDate === endDate ? `${startDate}` : `${startDate} - ${endDate}`
         });
     } catch (error) {
         logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
         next(error);
-    } finally {
-        logger.info("Closing connection to 'CO2DataDB' database");
-
-        await closeCO2DataDB();
     }
 });
 
