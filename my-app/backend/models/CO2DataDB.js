@@ -13,7 +13,7 @@ async function connectToCO2DataDB() {
     try {
         await clientInstance.connect();
 
-        const dbInstance = clientInstance.db("co2Data");
+        const dbInstance = clientInstance.db("CO2DataDB");
 
         return dbInstance;
     } catch (error) {
