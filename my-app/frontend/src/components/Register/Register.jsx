@@ -29,9 +29,10 @@ const Register = () => {
 
             if (data.authtoken) {
                 sessionStorage.setItem('auth-token', data.authtoken);
-                sessionStorage.setItem('name', name);
+                sessionStorage.setItem('username', data.username);
                 sessionStorage.setItem('email', data.email);
                 sessionStorage.setItem('authExpiry', data.expiresAt.toString());
+
                 setIsLoggedIn(true);
                 navigate("/app");
             } else if (data.error) {
@@ -50,7 +51,7 @@ const Register = () => {
         <div className="flex h-screen">
             <form 
             onSubmit={handleRegister} 
-            className="flex flex-col bg-gray-600 opacity-70 text-white mx-auto my-auto rounded-md p-4">
+            className="flex flex-col bg-gray-600/70 text-white mx-auto my-auto rounded-md p-4">
                 <p className="text-lg font-bold mb-4">
                     Register
                 </p>
@@ -63,6 +64,7 @@ const Register = () => {
                 type="text" 
                 value={name} 
                 placeholder="Name" 
+                required={true} 
                 onChange={(event) => setName(event.target.value)}
                 />
                 <label htmlFor="surname" className="font-light text-sm mb-1.5">Surname</label>
@@ -73,6 +75,7 @@ const Register = () => {
                 type="text" 
                 value={surname} 
                 placeholder="Surname" 
+                required={true} 
                 onChange={(event) => setSurname(event.target.value)}
                 />
                 <label htmlFor="username" className="font-light text-sm mb-1.5">Username</label>
@@ -83,6 +86,7 @@ const Register = () => {
                 type="text" 
                 value={username} 
                 placeholder="Username" 
+                required={true} 
                 onChange={(event) => setUsername(event.target.value)}
                 />
                 <label htmlFor="email" className="font-light text-sm mb-1.5">Email</label>
@@ -93,6 +97,7 @@ const Register = () => {
                 type="email" 
                 value={email} 
                 placeholder="Email" 
+                required={true} 
                 onChange={(event) => setEmail(event.target.value)}
                 />
                 <label htmlFor="password" className="font-light text-sm mb-2.5">Password</label>
@@ -103,13 +108,23 @@ const Register = () => {
                 type="password" 
                 value={password} 
                 placeholder="Password" 
+                required={true} 
                 onChange={(event) => setPassword(event.target.value)}
                 />
 
                 <button 
                 id="register"
                 disabled={isSubmitting}
-                className="bg-green-500 text-white hover:scale-110 border-black rounded-md active:bg-white active:text-green-500 active:scale-90" 
+                className={`
+                bg-green-500 
+                text-white 
+                border-black 
+                rounded-md 
+                active:bg-white 
+                active:text-green-500 
+                active:scale-90 
+                transition-opacity 
+                ${isSubmitting ? "cursor-not-allowed" : "hover:scale-110"}`} 
                 type="submit">
                     {isSubmitting ? "Registering" : "Register"}
                 </button>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppContext } from "../../context/authContext";
 import axios from "axios";
@@ -6,13 +6,19 @@ import axios from "axios";
 const backendUrl = process.env.REACT_APP_BACKEND_URL;
 
 const Login = () => {
-    const [email, setEmail] = useState("");
+    const {email, setEmail} = useAppContext();
     const [password, setPassword] = useState("");
     const [errorMessage, setErrorMessage] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const { setIsLoggedIn } = useAppContext();
     const navigate = useNavigate();
+
+    useEffect(() => {
+        if (sessionStorage.getItem("authtoken")) {
+            navigate("/app");
+        }
+    }, [navigate]);
 
     const handleLogin = async (event) => {
         try {
@@ -33,6 +39,9 @@ const Login = () => {
                 setIsLoggedIn(true);
                 navigate("/app");
             } else if (data.error) {
+                document.getDocumentById("email").value = "";
+                document.getDocumentById("password").value = "";
+
                 setErrorMessage(data.error);
                 setTimeout(() => setErrorMessage(""), 5000);
             }
@@ -48,7 +57,7 @@ const Login = () => {
         <div className="flex h-screen">
             <form 
             onSubmit={handleLogin} 
-            className="flex flex-col bg-gray-600 opacity-70 text-white mx-auto my-auto rounded-md p-4">
+            className="flex flex-col bg-gray-600/70 text-white mx-auto my-auto rounded-md p-4">
                 <p className="text-lg font-bold mb-4">
                     Login
                 </p>
@@ -61,6 +70,7 @@ const Login = () => {
                 type="email" 
                 value={email} 
                 placeholder="Email" 
+                required={true} 
                 onChange={(event) => setEmail(event.target.value)}
                 />
                 <label htmlFor="password" className="font-light text-sm mb-2.5">Password</label>
@@ -70,6 +80,7 @@ const Login = () => {
                 className="bg-gray-300 text-green-900 mb-1.5 rounded-sm" 
                 type="password" 
                 value={password} 
+                required={true} 
                 placeholder="Password" 
                 onChange={(event) => setPassword(event.target.value)}
                 />
@@ -77,7 +88,16 @@ const Login = () => {
                 <button 
                 id="login"
                 disabled={isSubmitting}
-                className="bg-green-500 text-white hover:scale-110 border-black rounded-md active:bg-white active:text-green-500 active:scale-80" 
+                className={`
+                bg-green-500 
+                text-white 
+                border-black 
+                rounded-md 
+                active:bg-white 
+                active:text-green-500 
+                active:scale-90 
+                transition-opacity 
+                ${isSubmitting ? "cursor-not-allowed" : "hover:scale-110"}`} 
                 type="submit">
                     {isSubmitting ? "Logging..." : "Login"}
                 </button>

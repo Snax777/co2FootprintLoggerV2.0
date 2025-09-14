@@ -70,6 +70,7 @@ router.post('/register', async (req, res, next) => {
         return res.status(200).json({
             message: `User with email ${email} registered successfully`,
             authtoken,
+            username,
             email,
             expiresIn: 3600,
             expiresAt: Date.now() + 3600
