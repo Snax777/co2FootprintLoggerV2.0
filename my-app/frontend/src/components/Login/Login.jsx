@@ -33,7 +33,7 @@ const Login = () => {
             if (data.authtoken) {
                 sessionStorage.setItem("username", data.username);
                 sessionStorage.setItem("email", data.email);
-                sessionStorage.setItem("authtoken", data.authtoken);
+                sessionStorage.setItem("auth-token", data.authtoken);
                 sessionStorage.setItem("authExpiry", data.expiresAt.toString());
                 
                 setIsLoggedIn(true);

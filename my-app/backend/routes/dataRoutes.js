@@ -4,16 +4,12 @@ import { config } from "dotenv";
 import { validationResult } from "express-validator";
 import pino from "pino";
 import jwt from "jsonwebtoken";
-import { getUTC } from "../../util/dateTimeToUTCConverter.js";
+import { getUTC, formatToGBLocale } from "../../util/dateTimeToUTCConverter.js";
 
 const router = Router();
 const logger = pino();
 
 config();
-
-function formatToGBLocale(date) {
-    return date.toLocaleDateString("en-GB");
-}
 
 if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET has no value');
@@ -270,7 +266,7 @@ router.get('/leaderboard/search', async (req, res, next) => {
         logger.info("Server connected to 'CO2DataDB' database");
 
         const startDate = getUTC(req.query.startDate)[0];
-        const endDate = getUTC(req.query.endDate)[0];
+        const endDate = req.query.endDate ? getUTC(req.query.endDate)[0] : startDate;
         const co2Data = await db.collection('co2Data');
 
         if ((!startDate || !endDate) || (startDate > endDate)) {

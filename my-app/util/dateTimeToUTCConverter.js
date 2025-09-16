@@ -2,4 +2,11 @@ function getUTCDateAndTime(date) {
     return date.toISOString().split('T');
 }
 
-export { getUTCDateAndTime as getUTC };
+function formatToGBLocale(date) {
+    return date.toLocaleDateString("en-GB");
+}
+
+export { 
+    getUTCDateAndTime as getUTC, 
+    formatToGBLocale,
+};

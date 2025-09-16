@@ -72,8 +72,8 @@ router.post('/register', async (req, res, next) => {
             authtoken,
             username,
             email,
-            expiresIn: 3600,
-            expiresAt: Date.now() + 3600
+            expiresIn: 3600000,
+            expiresAt: Date.now() + 3600000
         });
     } catch (error) {
         logger.error("Server failed to connect to 'UserDB' database: ", error.message);
@@ -141,8 +141,8 @@ router.post('/login', async (req, res, next) => {
                 username: existingUser.username, 
                 email: req.body.email,
                 authtoken,
-                expiresIn: 3600,
-                expiresAt: Date.now() + 3600
+                expiresIn: 3600000,
+                expiresAt: Date.now() + 3600000
             });
         }
     } catch (error) {

@@ -7,62 +7,83 @@ const NavigationBar = () => {
     const navigate = useNavigate();
 
     useEffect(() => {
-        const authToken = sessionStorage.getItem("authtoken");
+        const authToken = sessionStorage.getItem("auth-token");
         const authExpiry = sessionStorage.getItem("authExpiry");
         const authUsername = sessionStorage.getItem("username");
         const authEmail = sessionStorage.getItem("email");
-        const currentTime = (Date.now()).toString();
+        const currentTime = Date.now();
+
+        const handleClearAuthSession = () => {
+            sessionStorage.clear();
+            setIsLoggedIn(false);
+            setUsername("");
+        };
 
         if (authToken && authExpiry && authUsername && authEmail) {
-            if (currentTime <= authExpiry) {
+            if (currentTime <= Number(authExpiry)) {
                 setUsername(authUsername);
+                setIsLoggedIn(true);
             } else {
-                sessionStorage.removeItem("username");
-                sessionStorage.removeItem("authtoken");
-                sessionStorage.removeItem("authExpiry");
-                sessionStorage.removeItem("email")
-                setIsLoggedIn(false);
+                handleClearAuthSession();
             }
         } else {
-            sessionStorage.removeItem("username");
-            sessionStorage.removeItem("authtoken");
-            sessionStorage.removeItem("authExpiry");
-            sessionStorage.removeItem("email");
-            setIsLoggedIn(false);
+            handleClearAuthSession();
         }
-    }, [isLoggedIn, setIsLoggedIn, setUsername]);
+    }, [setIsLoggedIn, setUsername]);
 
     const handleLogout = () => {
-        sessionStorage.removeItem("username");
-        sessionStorage.removeItem("authtoken");
-        sessionStorage.removeItem("authExpiry");
-        sessionStorage.removeItem("email");
+        sessionStorage.clear();
         setIsLoggedIn(false);
         setUsername("");
 
         navigate("/app/login");
     };
 
-    const handleProfile = () => {
-        navigate("/app/profile");
-    };
-
     return (
-        <div className="bg-green-700 flex h-screen">
-            <div className="flex text-white text-xl">
-                <p>CO2Logger</p>
+        <nav className="bg-green-700/0 flex justify-between items-center p-4 gap-x-4">
+            <div className="font-bold text-white text-lg">
+                <Link to={isLoggedIn ? "/app" : "/"}>CO2Logger</Link>
             </div>
-            <div className="flex text-white">
-                {isLoggedIn && (<p 
-                className={`hover:underline active:text-gray-600 active:scale-80`} 
-                >{isLoggedIn ? "Dashboard" : ""}</p>)}
-                <p className={`hover:underline active:text-gray-600 active:scale-80`}>Scoreboard</p>
-            </div>
-            <div className="flex text-white weight-">
-                {(isLoggedIn && username) ?? (
+            <div className="flex text-white text-sm gap-x-4">
+                {isLoggedIn && (
+                    <>
+                        <Link 
+                        className="hover:underline hover:font-bold active:text-gray-600 active:scale-90"
+                        to="/app">Home</Link>
+                        <Link 
+                        className="hover:underline hover:font-bold active:text-gray-600 active:scale-90"
+                        to="/app/dashboard">Dashboard</Link>
+                    </>
 
                 )}
+                <Link 
+                className="hover:underline hover:font-bold active:text-gray-600 active:scale-90" 
+                to="/app/leaderboard">Leaderboard</Link>
             </div>
-        </div>
+            <div className="flex text-white gap-x-2 text-sm">
+                {
+                (isLoggedIn && username) ? 
+                <>
+                    <Link 
+                    className="hover:scale-110 active:scale-90 active:text-gray-500 cursor-pointer" 
+                    to="/app/profile">{username}</Link>
+                    <button 
+                    className="bg-red-500 hover:bg-red-600 active:scale-90 active:text-red-700 border-2 rounded-md px-2 py-1" 
+                    onClick={handleLogout}>Logout</button>
+                </>
+                 : 
+                <>
+                    <button 
+                    className="bg-green-500 hover:bg-white hover:text-green-500 active:scale-90 active:bg-gray-600 active:text-green-700 border-2 rounded-md px-2 py-1"
+                    onClick={() => navigate("/app/login")}>Login</button>
+                    <button 
+                    className="bg-white text-green-500 hover:bg-green-500 hover:text-white active:scale-90 active:bg-green-700 active:text-gray-600 border-2 rounded-md px-2 py-1"
+                    onClick={() => navigate("/app/register")}>Register</button>
+                </>
+                }
+            </div>
+        </nav>
     )
 }
+
+export default NavigationBar;
