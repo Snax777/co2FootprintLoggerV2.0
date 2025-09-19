@@ -18,16 +18,16 @@ const Leaderboard = () => {
     const handleEarlyDateTracking = (event) => {
         const dateRange = parseInt(event.target.value);
         const earlyMilliseconds = currentMilliseconds - (dateRange * 24 * 3600000);
-        const earlyDate = new Date(earlyMilliseconds);
+        const earlyDateAndTime = new Date(earlyMilliseconds);
 
-        return getUTC(earlyDate);
+        return getUTC(earlyDateAndTime);
     };
     
     const handleDataFetch = async (event, dateRange) => {
         try {
             event.preventDefault();
 
-            const base = backendUrl + process.env.REACT_APP_SCOREBOARD_DATA;
+            const base = backendUrl + process.env.REACT_APP_LEADERBOARD_DATA;
 
             const { data } = await axios.get(`${base}?${dateRange}`);
 

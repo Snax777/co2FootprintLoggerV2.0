@@ -4,6 +4,7 @@ import Register from './components/Register/Register';
 import Login from './components/Login/Login';
 import NavigationBar from './components/NavigationBar/NavigationBar';
 import Leaderboard from './components/Leaderboard/Leaderboard';
+import LoggerChart from './components/LoggerChart/LoggerChart';
 
 function App() {
   return (
@@ -12,6 +13,7 @@ function App() {
       <Routes>
         <Route path="/app/register" element={<Register />} />
         <Route path="/app/login" element={<Login />} />
+        <Route path="/app/loggerChart" element={<LoggerChart />}/>
         <Route path="/app/leaderboard" element={<Leaderboard />} />
       </Routes>
     </>

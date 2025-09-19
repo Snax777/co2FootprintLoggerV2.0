@@ -56,7 +56,7 @@ router.post('/', async (req, res, next) => {
 
         const newCO2Data = Array.isArray(req.body.data) ? req.body.data : [req.body.data];
         const totalCO2 = req.body.totalCO2;
-        const currentDate = req.body.currentDate;
+        const currentDate = new Date();
         const localDate = formatToGBLocale(currentDate);
         const utcDateAndTime = getUTC(currentDate);
         let prevDate = new Date(utcDateAndTime[0]);
@@ -65,7 +65,7 @@ router.post('/', async (req, res, next) => {
 
         prevDate = getUTC(prevDate)[0];
 
-        const co2Data = await db.collection("co2Data");
+        const co2Data = db.collection("co2Data");
         const existingCO2Data = await co2Data.findOne({
             email: userEmail, 
             utcDate: utcDateAndTime[0],
@@ -191,8 +191,8 @@ router.get('/search', async (req, res, next) => {
 
         logger.info("Server connected to 'CO2DataDB' database");
 
-        const startDate = getUTC(req.query.startDate)[0];
-        const endDate = getUTC(req.query.endDate)[0];
+        const startDate = req.query.startDate;
+        const endDate = req.query.endDate;
 
         if ((!startDate || !endDate) || (startDate > endDate)) {
             logger.error("User did not provide valid data range");
@@ -202,7 +202,7 @@ router.get('/search', async (req, res, next) => {
             });
         }
 
-        const co2Data = await db.collection('co2Data');
+        const co2Data = db.collection('co2Data');
         const findUserCO2Data = await co2Data.find({
             email: userEmail,
             utcDate: {
@@ -265,9 +265,9 @@ router.get('/leaderboard/search', async (req, res, next) => {
 
         logger.info("Server connected to 'CO2DataDB' database");
 
-        const startDate = getUTC(req.query.startDate)[0];
-        const endDate = req.query.endDate ? getUTC(req.query.endDate)[0] : startDate;
-        const co2Data = await db.collection('co2Data');
+        const startDate = req.query.startDate;
+        const endDate = req.query.endDate ? req.query.endDate : startDate;
+        const co2Data = db.collection('co2Data');
 
         if ((!startDate || !endDate) || (startDate > endDate)) {
             logger.error("User did not provide valid data range");
@@ -367,7 +367,7 @@ router.get("/averageCO2/search", async (req, res, next) => {
 
         const startDate = getUTC(req.query.startDate)[0];
         const endDate = getUTC(req.query.endDate)[0];
-        const co2Data = await db.collection('co2Data');
+        const co2Data = db.collection('co2Data');
 
         if ((!startDate || !endDate) || (startDate > endDate)) {
             logger.error("User did not provide valid data range");

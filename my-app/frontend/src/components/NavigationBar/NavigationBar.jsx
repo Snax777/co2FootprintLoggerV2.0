@@ -45,14 +45,14 @@ const NavigationBar = () => {
                 <Link to={isLoggedIn ? "/app" : "/"}>CO2Logger</Link>
             </div>
             <div className="flex text-white text-sm gap-x-4">
+                <Link 
+                className="hover:underline hover:font-bold active:text-gray-600 active:scale-90"
+                to={isLoggedIn ? "/app" : "/"}>Home</Link>
                 {isLoggedIn && (
                     <>
                         <Link 
                         className="hover:underline hover:font-bold active:text-gray-600 active:scale-90"
-                        to="/app">Home</Link>
-                        <Link 
-                        className="hover:underline hover:font-bold active:text-gray-600 active:scale-90"
-                        to="/app/dashboard">Dashboard</Link>
+                        to="/app/logger">Logger</Link>
                     </>
 
                 )}

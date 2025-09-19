@@ -301,7 +301,7 @@ router.delete('/delete', async (req, res, next) => {
             if (!dataDeleted && !userDeleted) {
                 logger.warn(`No deletions performed for ${userEmail} - both flags were false`);
                 return res.status(400).json({
-                    message: "No deletions performed. Set deleteData or deleteUser to true.",
+                    message: "No deletions performed.",
                 });
             }
 
