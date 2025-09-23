@@ -142,19 +142,20 @@ const LoggerChart = () => {
 
         if (rawData.length > 0) {
             for (let category of categories) {
-                let data = {};
+                let data1 = {};
                 let totalCO2 = 0;
                 
                 for (let item of rawData) {
-                    if (item.co2Category === category) {
-                        totalCO2 += item.co2Value;
-                    }
+                    let data2 = item.co2Data;
+                    totalCO2 = data2
+                    .filter((data) => data.co2Category === category)
+                    .reduce((val, data) => {return val + data.co2Value;}, 0);
                 }
 
-                data.co2Category = category;
-                data.co2Value = totalCO2;
+                data1.co2Category = category;
+                data1.co2Value = totalCO2;
 
-                newData.push(data);
+                newData.push(data1);
             }
             
 

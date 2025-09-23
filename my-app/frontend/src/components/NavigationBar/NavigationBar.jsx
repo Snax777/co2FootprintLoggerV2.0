@@ -52,7 +52,7 @@ const NavigationBar = () => {
                     <>
                         <Link 
                         className="hover:underline hover:font-bold active:text-gray-600 active:scale-90"
-                        to="/app/logger">Logger</Link>
+                        to="/app/loggerChart">Logger</Link>
                     </>
 
                 )}

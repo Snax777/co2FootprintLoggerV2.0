@@ -87,7 +87,6 @@ router.post('/login', async (req, res, next) => {
 
         if (!errors.isEmpty()) {
             logger.error("Validation error(s) in the '/login' POST request: ", errors.array());
-            console.error("Validation error(s) in the '/login' POST request: ", errors.array());
 
             return res.status(400).json({error: errors.array()});
         }
@@ -244,9 +243,7 @@ router.delete('/delete', async (req, res, next) => {
         }
         
         const token = authHeader.replace('Bearer ', '');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET, {
-            expiresIn: "1h"
-        });
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const userId = decoded.user.id;
         const userEmail = decoded.user.email;
         
@@ -272,8 +269,9 @@ router.delete('/delete', async (req, res, next) => {
         logger.info("Server connected to 'CO2DataDB' database");
         logger.info("Server connected to 'UserDB' database");
 
-        const collection1 = await db1.collection("users");
-        const collection2 = await db2.collection("co2Data");
+        const collection1 = db1.collection("users");
+        const collection2 = db2.collection("co2Data");
+        const collection3 = db2.collection("co2Goals");
         const currentUser = await collection1.findOne({email: userEmail});
         const passwordResult = await bcryptjs.compare(req.body.password, currentUser.hash);
 
@@ -286,9 +284,11 @@ router.delete('/delete', async (req, res, next) => {
         if (passwordResult) {
             let deleteUser = null;
             let deleteUserData = null;
+            let deleteUserGoals = null;
 
             if (req.body.deleteData === true) {
                 deleteUserData = await collection2.deleteMany({email: userEmail});
+                deleteUserGoals = await collection3.deleteOne({email: userEmail});
             }
 
             if (req.body.deleteUser === true) {
@@ -297,8 +297,9 @@ router.delete('/delete', async (req, res, next) => {
 
             const dataDeleted = deleteUserData?.deletedCount > 0;
             const userDeleted = deleteUser?.deletedCount > 0;
+            const userGoalsDeleted = deleteUserGoals?.deletedCount > 0;
 
-            if (!dataDeleted && !userDeleted) {
+            if (!dataDeleted && !userDeleted && !userGoalsDeleted) {
                 logger.warn(`No deletions performed for ${userEmail} - both flags were false`);
                 return res.status(400).json({
                     message: "No deletions performed.",
@@ -315,6 +316,10 @@ router.delete('/delete', async (req, res, next) => {
                     user: {
                         performed: userDeleted,
                         accountDeleted: userDeleted
+                    }, 
+                    goals: {
+                        performed: userGoalsDeleted,
+                        goalsDeleted: userGoalsDeleted
                     }
                 }
             });

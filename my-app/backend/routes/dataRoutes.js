@@ -4,7 +4,12 @@ import { config } from "dotenv";
 import { validationResult } from "express-validator";
 import pino from "pino";
 import jwt from "jsonwebtoken";
-import { getUTC, formatToGBLocale } from "../../util/dateTimeToUTCConverter.js";
+import { 
+    getUTC, 
+    getMondayDateAndTime, 
+    getSundayDateAndTime, 
+    formatToGBLocale 
+} from "../../util/dateTimeToUTCConverter.js";
 
 const router = Router();
 const logger = pino();
@@ -28,9 +33,7 @@ router.post('/', async (req, res, next) => {
         }
 
         const token = authHeader.replace('Bearer ', '');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET, {
-            expiresIn: "1h"
-        });
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const userId = decoded.user.id;
         const userEmail = decoded.user.email;
 
@@ -89,21 +92,8 @@ router.post('/', async (req, res, next) => {
             });
 
             if (previousCO2Data) {
-                let mondayDate = new Date(utcDateAndTime[0]);
-                const dayOfWeek = mondayDate.getDay();
-                const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-
-                mondayDate.setDate(mondayDate.getDate() - daysSinceMonday);
-                mondayDate.setHours(0, 0, 0, 0);
-
-                const mondayDateString = getUTC(mondayDate)[0];
-
-                let sundayDate = new Date(mondayDate);
-
-                sundayDate.setDate(mondayDate.getDate() + 6);
-                sundayDate.setHours(23, 59, 59, 999);
-
-                const sundayDateString = getUTC(sundayDate)[0];
+                const mondayDateString = getMondayDateAndTime(utcDateAndTime[0])[0];
+                const sundayDateString = getSundayDateAndTime(mondayDateString)[0];
 
                 if (
                 (previousCO2Data.utcDate >= mondayDateString) && 
@@ -165,9 +155,7 @@ router.get('/search', async (req, res, next) => {
         }
 
         const token = authHeader.replace('Bearer ', '');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET,  {
-            expiresIn: "1h"
-        });
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const userId = decoded.user.id;
         const userEmail = decoded.user.email;
 
@@ -239,9 +227,7 @@ router.get('/leaderboard/search', async (req, res, next) => {
         }
 
         const token = authHeader.replace('Bearer ', '');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET, {
-            expiresIn: "1h"
-        });
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const userId = decoded.user.id;
         const userEmail = decoded.user.email;
 
@@ -339,9 +325,7 @@ router.get("/averageCO2/search", async (req, res, next) => {
         }
 
         const token = authHeader.replace('Bearer ', '');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET, {
-            expiresIn: "1h"
-        });
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const userId = decoded.user.id;
         const userEmail = decoded.user.email;
 
@@ -413,6 +397,65 @@ router.get("/averageCO2/search", async (req, res, next) => {
         });
     } catch (error) {
         logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
+        next(error);
+    }
+});
+
+router.delete("/delete", async (req, res, next) => {
+    try {
+        const authHeader = req.header('Authorization');
+
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            logger.error("Access denied. No token provided");
+
+            return res.status(401).json({
+                message: "Access denied. No token provided"
+            });
+        }
+
+        const token = authHeader.replace('Bearer ', '');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const userId = decoded.user.id;
+        const userEmail = decoded.user.email;
+
+        if (!userId || !userEmail) {
+            logger.error("User not logged in or missing email");
+
+            return res.status(400).json({
+                message: "User not logged in or properly authenticated",
+            });
+        }
+
+        const errors = validationResult(req);
+
+        if (!errors.isEmpty()) {
+            logger.error("Validation error(s) in the '/delete' DELETE request: ", errors.array());
+
+            return res.status(400).json({error: errors.array()});
+        }
+
+        const db = await co2DataDB();
+
+        logger.info("Server connected to 'CO2DataDB' database");
+
+        const collection = db.collection("co2Data");
+        const deleteUserData = await collection.deleteMany({email: userEmail});
+
+        if (deleteUserData.deletedCount === 0) {
+            logger.warn(`No data deletion performed for ${userEmail} -- no documents found`);
+            return res.status(404).json({
+                count: deleteUserData.deletedCount,
+                message: `No data found for deletion`,
+            });
+        } else {
+            logger.info(`Data for ${userEmail} successfully deleted`);
+            return res.status(200).json({
+                count: deleteUserData.deletedCount,
+                message: "Data successfully deleted",
+            });
+        }
+    } catch (error) {
+        logger.error("Server failed to connect to 'CO2UserDB' databases: ", error.message);
         next(error);
     }
 });

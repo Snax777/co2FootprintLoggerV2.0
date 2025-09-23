@@ -2,11 +2,9 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import pino from "pino";
-import { config } from "dotenv";
 import { dataRoutes } from "./routes/dataRoutes.js";
 import { userRoutes } from "./routes/userRoutes.js";
-
-config();
+import { goalRoutes } from "./routes/goalRoutes.js";
 
 const port = process.env.PORT ? process.env.PORT : 3000;
 const server = express();
@@ -19,6 +17,7 @@ server.use(cors());
 
 server.use('/api/account', userRoutes);
 server.use('/api/data', dataRoutes);
+server.use('/api/goals', goalRoutes);
 server.use((error, req, res, next) => {
     logger.error("Error: ", next(error));
     res.status(500).send('Internal Server Error');

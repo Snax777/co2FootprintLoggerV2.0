@@ -15,7 +15,7 @@ const Login = () => {
     const navigate = useNavigate();
 
     useEffect(() => {
-        if (sessionStorage.getItem("authtoken")) {
+        if (sessionStorage.getItem("auth-token")) {
             navigate("/app");
         }
     }, [navigate]);
