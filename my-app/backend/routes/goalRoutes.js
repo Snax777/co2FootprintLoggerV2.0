@@ -56,7 +56,7 @@ router.post('/', async (req, res, next) => {
 
         logger.info("Server connected to 'CO2DataDB' database");
 
-        const utcDateAndTime = getUTC(req.body.logDate);
+        const utcDateAndTime = getUTC(new Date());
         const goals = req.body.goals;
 
         const co2Goals = db.collection('co2Goals');
@@ -165,7 +165,7 @@ router.get("/goals", async (req, res, next) => {
 
         const co2Goals = db.collection("co2Goals");
 
-        const currentDateAndTime = new Date(req.query.date);
+        const currentDateAndTime = new Date();
         const utcDateAndTime = getUTC(currentDateAndTime);
 
         const mondayDate = getMondayDateAndTime(utcDateAndTime[0])[0];
@@ -187,73 +187,6 @@ router.get("/goals", async (req, res, next) => {
             return res.status(200).json({
                 data: findUserGoals
             });
-        }
-    } catch (error) {
-        logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
-        next(error);
-    }
-});
-
-router.delete("/delete", async (req, res, next) => {
-    try {
-        
-        const authHeader = req.header('Authorization');
-
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            logger.error("Access denied. No token provided");
-
-            return res.status(401).json({
-                message: "Access denied. No token provided"
-            });
-        }
-
-        const token = authHeader.replace('Bearer ', '');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const userId = decoded.user.id;
-        const userEmail = decoded.user.email;
-
-        if (!userId || !userEmail) {
-            logger.error("User not logged in or missing email");
-
-            return res.status(400).json({
-                message: "User not logged in or properly authenticated",
-            });
-        }
-
-        const errors = validationResult(req);
-
-        if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/delete' DELETE request: ", errors.array());
-
-            return res.status(400).json({error: errors.array()});
-        }
-
-        const db = await co2DataDB();
-
-        logger.info("Server connected to 'CO2DataDB' database");
-
-        const co2Goals = db.collection("co2Goals");
-        const removeUserGoals = await co2Goals.deleteOne(
-            {user: userEmail}
-        );
-
-        const userGoalsDeleted = removeUserGoals?.deletedCount > 0;
-
-        if (!userGoalsDeleted) {
-            logger.warn(`No deletion performed for ${userEmail} -- deletion flag is ${userGoalsDeleted}`)
-            return res.status(400).json({
-                message: `Goals of user ${userEmail} don't exist`
-            });
-        } else {
-            return res.status(200).json({
-                message: `Goals successfully deleted`,
-                deletion: {
-                    goals: {
-                        performed: userGoalsDeleted,
-                        recordsDeleted: removeUserGoals?.deletedCount
-                    }
-                }
-            })
         }
     } catch (error) {
         logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);

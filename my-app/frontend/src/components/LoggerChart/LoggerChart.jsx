@@ -34,6 +34,9 @@ const LoggerChart = () => {
     const [showChart, setShowChart] = useState(false);
     const [formattedData, setFormattedData] = useState([]);
     const [uniqueColors, setUniqueColors] = useState([]);
+
+    const authToken = sessionStorage.getItem("auth-token");
+
     const chartData = {
         labels: formattedData.map(data => data.co2Category),
         datasets: [
@@ -117,7 +120,10 @@ const LoggerChart = () => {
             event.preventDefault();
 
             const base = process.env.REACT_APP_BACKEND_URL + process.env.REACT_APP_SEARCH_DATA;
-            const { data } = await axios.get(`${base}${dateRange}`);
+            const { data } = await axios.get(
+                `${base}${dateRange}`, 
+                { headers: {Authorization: `Bearer ${authToken}`}}
+            );
 
             if (data.data.length > 0) {
                 setFetchedCO2Data(data.data);

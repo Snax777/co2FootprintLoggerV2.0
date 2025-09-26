@@ -6,8 +6,8 @@ function formatToGBLocale(date) {
     return date.toLocaleDateString("en-GB");
 }
 
-function getMondayDateAndTime(date) {
-    let mondayDate = new Date(date);
+function getMondayDateAndTime(date = "") {
+    let mondayDate = date ? new Date(date) : new Date();
     const dayOfWeek = mondayDate.getDay();
     const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
 
@@ -17,7 +17,7 @@ function getMondayDateAndTime(date) {
     return getUTCDateAndTime(mondayDate);
 }
 
-function getSundayDateAndTime(date) {
+function getSundayDateAndTime(date = "") {
     let sundayDate = new Date (getMondayDateAndTime(date)[0]);
 
     sundayDate.setDate(sundayDate.getDate() + 6);

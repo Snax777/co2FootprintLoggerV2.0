@@ -308,7 +308,7 @@ router.delete('/delete', async (req, res, next) => {
 
             return res.status(200).json({
                 message: "Deletion successful",
-                deletions: {
+                deletionsSuccessful: {
                     data: {
                         performed: dataDeleted,
                         recordsDeleted: deleteUserData?.deletedCount || 0,

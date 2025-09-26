@@ -179,10 +179,10 @@ router.get('/search', async (req, res, next) => {
 
         logger.info("Server connected to 'CO2DataDB' database");
 
-        const startDate = req.query.startDate;
-        const endDate = req.query.endDate;
+        const startDate = req.query.startDate ? req.query.startDate : "";
+        const endDate = req.query.endDate ? req.query.endDate : "";
 
-        if ((!startDate || !endDate) || (startDate > endDate)) {
+        if ((startDate && endDate) && (startDate > endDate)) {
             logger.error("User did not provide valid data range");
 
             return res.status(400).json({
@@ -191,18 +191,33 @@ router.get('/search', async (req, res, next) => {
         }
 
         const co2Data = db.collection('co2Data');
-        const findUserCO2Data = await co2Data.find({
-            email: userEmail,
-            utcDate: {
-                $gte: startDate, 
-                $lte: endDate,
-            }
-        }).sort({utcDate: -1}).toArray();
 
-        if (startDate === endDate) {
-            logger.info(`Data of the date ${startDate} successfully retrieved`);
+        await co2Data.createIndex({email: 1, utcDate: -1})
+
+        let findUserCO2Data = null;
+
+        if (startDate && endDate) {
+            findUserCO2Data = await co2Data.find({
+                email: userEmail,
+                utcDate: {
+                    $gte: startDate, 
+                    $lte: endDate,
+                }
+            }).sort({utcDate: -1}).toArray();
+
+            if (startDate === endDate) {
+                logger.info(`Data of the date ${startDate} successfully retrieved`);
+            } else {
+                logger.info(
+                    `Data between the dates ${startDate} and ${endDate} successfully retrieved`
+                );
+            }
         } else {
-            logger.info(`Data between the dates ${startDate} and ${endDate} successfully retrieved`);
+            findUserCO2Data = await co2Data
+            .find({email: userEmail})
+            .sort({utcDate: -1})
+            .limit(1)
+            .toArray();
         }
 
         return res.status(200).json({
@@ -397,65 +412,6 @@ router.get("/averageCO2/search", async (req, res, next) => {
         });
     } catch (error) {
         logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
-        next(error);
-    }
-});
-
-router.delete("/delete", async (req, res, next) => {
-    try {
-        const authHeader = req.header('Authorization');
-
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            logger.error("Access denied. No token provided");
-
-            return res.status(401).json({
-                message: "Access denied. No token provided"
-            });
-        }
-
-        const token = authHeader.replace('Bearer ', '');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const userId = decoded.user.id;
-        const userEmail = decoded.user.email;
-
-        if (!userId || !userEmail) {
-            logger.error("User not logged in or missing email");
-
-            return res.status(400).json({
-                message: "User not logged in or properly authenticated",
-            });
-        }
-
-        const errors = validationResult(req);
-
-        if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/delete' DELETE request: ", errors.array());
-
-            return res.status(400).json({error: errors.array()});
-        }
-
-        const db = await co2DataDB();
-
-        logger.info("Server connected to 'CO2DataDB' database");
-
-        const collection = db.collection("co2Data");
-        const deleteUserData = await collection.deleteMany({email: userEmail});
-
-        if (deleteUserData.deletedCount === 0) {
-            logger.warn(`No data deletion performed for ${userEmail} -- no documents found`);
-            return res.status(404).json({
-                count: deleteUserData.deletedCount,
-                message: `No data found for deletion`,
-            });
-        } else {
-            logger.info(`Data for ${userEmail} successfully deleted`);
-            return res.status(200).json({
-                count: deleteUserData.deletedCount,
-                message: "Data successfully deleted",
-            });
-        }
-    } catch (error) {
-        logger.error("Server failed to connect to 'CO2UserDB' databases: ", error.message);
         next(error);
     }
 });
