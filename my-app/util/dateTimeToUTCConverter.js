@@ -18,6 +18,10 @@ function getMondayDateAndTime(date = "") {
 }
 
 function getSundayDateAndTime(date = "") {
+    if (!date) {
+        date = new Date();
+    }
+
     let sundayDate = new Date (getMondayDateAndTime(date)[0]);
 
     sundayDate.setDate(sundayDate.getDate() + 6);
@@ -26,9 +30,17 @@ function getSundayDateAndTime(date = "") {
     return getUTCDateAndTime(sundayDate);
 }
 
+function getEarlyDate(dateRange = 0) {
+    const currentMilliseconds = Date.now();
+    const earlyMilliseconds = currentMilliseconds - (dateRange * 24 * 60 * 60 * 1000);
+
+    return getUTCDateAndTime(new Date(earlyMilliseconds))[0];
+}
+
 export { 
     getUTCDateAndTime as getUTC, 
     formatToGBLocale, 
     getMondayDateAndTime, 
-    getSundayDateAndTime
+    getSundayDateAndTime, 
+    getEarlyDate
 };

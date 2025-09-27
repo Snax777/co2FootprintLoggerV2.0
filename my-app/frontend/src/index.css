@@ -1,3 +1,8 @@
-@import "tailwindcss";
+@import "tailwindcss/preflight";
+@import "tailwindcss/utilities";
 
-
+body {
+  @apply text-white text-center;
+  background: url('../public/background.gif') no-repeat center center fixed;
+  background-size: cover;
+}

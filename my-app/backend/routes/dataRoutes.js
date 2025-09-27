@@ -364,8 +364,8 @@ router.get("/averageCO2/search", async (req, res, next) => {
 
         logger.info("Server connected to 'CO2DataDB' database");
 
-        const startDate = getUTC(req.query.startDate)[0];
-        const endDate = getUTC(req.query.endDate)[0];
+        const startDate = req.query.startDate;
+        const endDate = req.query.endDate;
         const co2Data = db.collection('co2Data');
 
         if ((!startDate || !endDate) || (startDate > endDate)) {
@@ -399,6 +399,91 @@ router.get("/averageCO2/search", async (req, res, next) => {
                     averageCO2: 1,
                     totalRecords: 1,
                     activeUsersCount: 1,
+                }
+            },
+        ];
+
+        const aggregatedData = await co2Data.aggregate(aggregationPipeline).toArray();
+
+        return res.status(200).json({
+            message: "Aggregation process complete",
+            data: aggregatedData,
+            period: startDate === endDate ? `${startDate}` : `${startDate} - ${endDate}`
+        });
+    } catch (error) {
+        logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
+        next(error);
+    }
+});
+
+router.get("/totalCO2", async (req, res, next) => {
+    try {
+        const authHeader = req.header('Authorization');
+
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            logger.error("Access denied. No token provided");
+
+            return res.status(401).json({
+                message: "Access denied. No token provided"
+            });
+        }
+
+        const token = authHeader.replace('Bearer ', '');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const userId = decoded.user.id;
+        const userEmail = decoded.user.email;
+
+        if (!userId || !userEmail) {
+            logger.error("User not logged in or missing email");
+
+            return res.status(400).json({
+                message: "User not logged in or properly authenticated",
+            });
+        }
+
+        const errors = validationResult(req);
+
+        if (!errors.isEmpty()) {
+            logger.error("Validation error(s) in the '/averageCO2/search' GET request: ", errors.array());
+
+            return res.status(400).json({error: errors.array()});
+        }
+
+        const db = await co2DataDB();
+
+        logger.info("Server connected to 'CO2DataDB' database");
+
+        const startDate = req.query.startDate ? req.query.startDate : getUTC(new Date())[0];
+        const endDate = req.query.endDate ? req.query.endDate : getUTC(new Date())[0];
+        const co2Data = db.collection('co2Data');
+        const userEmailObj = {email: userEmail};
+
+        if ((!startDate || !endDate) || (startDate > endDate)) {
+            logger.error("User did not provide valid data range");
+
+            return res.status(400).json({
+                message: "Provide a valid date range (startDate <= endDate)",
+            });
+        }
+
+        const aggregationPipeline = [
+            {$match: {
+                utcDate: {$gte: startDate, $lte: endDate}, 
+                ...userEmailObj
+            }},
+            {
+                $group: {
+                    _id: null,
+                    totalCO2: {$sum: "$totalCO2"},
+                    totalRecords: {$sum: 1},
+                    activeUsers: {$addToSet: "$email"},
+                }
+            }, 
+            {
+                $project: {
+                    _id: 0,
+                    totalCO2: 1,
+                    totalRecords: 1,
                 }
             },
         ];

@@ -126,7 +126,7 @@ router.post('/', async (req, res, next) => {
     }
 });
 
-router.get("/goals", async (req, res, next) => {
+router.get("/weeklyGoals", async (req, res, next) => {
     try {
         const authHeader = req.header('Authorization');
 
