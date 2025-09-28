@@ -48,7 +48,7 @@ router.post('/', async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/' POST request: ", errors.array());
+            console.error("Validation error(s) in the '/' POST request: ", errors.array());
 
             return res.status(400).json({error: errors.array()});
         }
@@ -106,7 +106,7 @@ router.post('/', async (req, res, next) => {
                         {returnDocument: "after"},
                     );
 
-                    logger.info(
+                    console.info(
                         `Logging streak of ${updateNewCO2Data.value.username} on
                          ${updateNewCO2Data.value.utcDate} is successfully updated to ${newStreak}`
                     );
@@ -114,7 +114,7 @@ router.post('/', async (req, res, next) => {
                 
             }
 
-            logger.info(`CO2 data successfully added`);
+            console.info(`CO2 data successfully added`);
             return res.status(201).json({
                 message: "New data added successfully",
                 id: addNewCO2Data.insertedId,
@@ -130,14 +130,14 @@ router.post('/', async (req, res, next) => {
                 {returnDocument: 'after'},
             );
 
-            logger.info(`New CO2 data of user ${existingCO2Data.username} successfully appended`);
+            console.info(`New CO2 data of user ${existingCO2Data.username} successfully appended`);
             return res.status(200).json({
                 message: "New data appended successfully",
                 id: updateCO2Data.value._id,
             });
         }
     } catch (error) {
-        logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
+        console.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
         next(error);
     }
 });
@@ -147,7 +147,7 @@ router.get('/search', async (req, res, next) => {
         const authHeader = req.header('Authorization');
 
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            logger.error("Access denied. No token provided");
+            console.error("Access denied. No token provided");
 
             return res.status(401).json({
                 message: "Access denied. No token provided"
@@ -160,7 +160,7 @@ router.get('/search', async (req, res, next) => {
         const userEmail = decoded.user.email;
 
         if (!userId || !userEmail) {
-            logger.error("User not logged in or missing email");
+            console.error("User not logged in or missing email");
 
             return res.status(400).json({
                 message: "User not logged in or properly authenticated",
@@ -170,20 +170,20 @@ router.get('/search', async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/search' GET request: ", errors.array());
+            console.error("Validation error(s) in the '/search' GET request: ", errors.array());
 
             return res.status(400).json({error: errors.array()});
         }
 
         const db = await co2DataDB();
 
-        logger.info("Server connected to 'CO2DataDB' database");
+        console.info("Server connected to 'CO2DataDB' database");
 
         const startDate = req.query.startDate ? req.query.startDate : "";
         const endDate = req.query.endDate ? req.query.endDate : "";
 
         if ((startDate && endDate) && (startDate > endDate)) {
-            logger.error("User did not provide valid data range");
+            console.error("User did not provide valid data range");
 
             return res.status(400).json({
                 message: "Provide a valid date range (startDate <= endDate)",
@@ -206,9 +206,9 @@ router.get('/search', async (req, res, next) => {
             }).sort({utcDate: -1}).toArray();
 
             if (startDate === endDate) {
-                logger.info(`Data of the date ${startDate} successfully retrieved`);
+                console.info(`Data of the date ${startDate} successfully retrieved`);
             } else {
-                logger.info(
+                console.info(
                     `Data between the dates ${startDate} and ${endDate} successfully retrieved`
                 );
             }
@@ -224,7 +224,7 @@ router.get('/search', async (req, res, next) => {
             data: findUserCO2Data,
         });
     } catch (error) {
-        logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
+        console.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
         next(error);
     }
 });
@@ -234,7 +234,7 @@ router.get('/leaderboard/search', async (req, res, next) => {
         const authHeader = req.header('Authorization');
 
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            logger.error("Access denied. No token provided");
+            console.error("Access denied. No token provided");
 
             return res.status(401).json({
                 message: "Access denied. No token provided"
@@ -247,7 +247,7 @@ router.get('/leaderboard/search', async (req, res, next) => {
         const userEmail = decoded.user.email;
 
         if (!userId || !userEmail) {
-            logger.error("User not logged in or missing email");
+            console.error("User not logged in or missing email");
 
             return res.status(400).json({
                 message: "User not logged in or properly authenticated",
@@ -257,21 +257,21 @@ router.get('/leaderboard/search', async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/leaderboard/search' GET request: ", errors.array());
+            console.error("Validation error(s) in the '/leaderboard/search' GET request: ", errors.array());
 
             return res.status(400).json({error: errors.array()});
         }
 
         const db = await co2DataDB();
 
-        logger.info("Server connected to 'CO2DataDB' database");
+        console.info("Server connected to 'CO2DataDB' database");
 
         const startDate = req.query.startDate;
         const endDate = req.query.endDate ? req.query.endDate : startDate;
         const co2Data = db.collection('co2Data');
 
         if ((!startDate || !endDate) || (startDate > endDate)) {
-            logger.error("User did not provide valid data range");
+            console.error("User did not provide valid data range");
 
             return res.status(400).json({
                 message: "Provide a valid date range (startDate <= endDate)",
@@ -321,7 +321,7 @@ router.get('/leaderboard/search', async (req, res, next) => {
             data: aggregatedData,
         });
     } catch (error) {
-        logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
+        console.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
 
         next(error);
     }
@@ -332,7 +332,7 @@ router.get("/averageCO2/search", async (req, res, next) => {
         const authHeader = req.header('Authorization');
 
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            logger.error("Access denied. No token provided");
+            console.error("Access denied. No token provided");
 
             return res.status(401).json({
                 message: "Access denied. No token provided"
@@ -345,7 +345,7 @@ router.get("/averageCO2/search", async (req, res, next) => {
         const userEmail = decoded.user.email;
 
         if (!userId || !userEmail) {
-            logger.error("User not logged in or missing email");
+            console.error("User not logged in or missing email");
 
             return res.status(400).json({
                 message: "User not logged in or properly authenticated",
@@ -355,21 +355,21 @@ router.get("/averageCO2/search", async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/averageCO2/search' GET request: ", errors.array());
+            console.error("Validation error(s) in the '/averageCO2/search' GET request: ", errors.array());
 
             return res.status(400).json({error: errors.array()});
         }
 
         const db = await co2DataDB();
 
-        logger.info("Server connected to 'CO2DataDB' database");
+        console.info("Server connected to 'CO2DataDB' database");
 
         const startDate = req.query.startDate;
         const endDate = req.query.endDate;
         const co2Data = db.collection('co2Data');
 
         if ((!startDate || !endDate) || (startDate > endDate)) {
-            logger.error("User did not provide valid data range");
+            console.error("User did not provide valid data range");
 
             return res.status(400).json({
                 message: "Provide a valid date range (startDate <= endDate)",
@@ -411,7 +411,7 @@ router.get("/averageCO2/search", async (req, res, next) => {
             period: startDate === endDate ? `${startDate}` : `${startDate} - ${endDate}`
         });
     } catch (error) {
-        logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
+        console.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
         next(error);
     }
 });
@@ -421,7 +421,7 @@ router.get("/totalCO2", async (req, res, next) => {
         const authHeader = req.header('Authorization');
 
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            logger.error("Access denied. No token provided");
+            console.error("Access denied. No token provided");
 
             return res.status(401).json({
                 message: "Access denied. No token provided"
@@ -434,7 +434,7 @@ router.get("/totalCO2", async (req, res, next) => {
         const userEmail = decoded.user.email;
 
         if (!userId || !userEmail) {
-            logger.error("User not logged in or missing email");
+            console.error("User not logged in or missing email");
 
             return res.status(400).json({
                 message: "User not logged in or properly authenticated",
@@ -444,14 +444,14 @@ router.get("/totalCO2", async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/averageCO2/search' GET request: ", errors.array());
+            console.error("Validation error(s) in the '/averageCO2/search' GET request: ", errors.array());
 
             return res.status(400).json({error: errors.array()});
         }
 
         const db = await co2DataDB();
 
-        logger.info("Server connected to 'CO2DataDB' database");
+        console.info("Server connected to 'CO2DataDB' database");
 
         const startDate = req.query.startDate ? req.query.startDate : getUTC(new Date())[0];
         const endDate = req.query.endDate ? req.query.endDate : getUTC(new Date())[0];
@@ -459,7 +459,7 @@ router.get("/totalCO2", async (req, res, next) => {
         const userEmailObj = {email: userEmail};
 
         if ((!startDate || !endDate) || (startDate > endDate)) {
-            logger.error("User did not provide valid data range");
+            console.error("User did not provide valid data range");
 
             return res.status(400).json({
                 message: "Provide a valid date range (startDate <= endDate)",
@@ -496,7 +496,7 @@ router.get("/totalCO2", async (req, res, next) => {
             period: startDate === endDate ? `${startDate}` : `${startDate} - ${endDate}`
         });
     } catch (error) {
-        logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
+        console.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
         next(error);
     }
 });

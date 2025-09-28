@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAppContext } from "../../context/authContext";
 import axios from "axios";
 
-const backendUrl = process.env.REACT_APP_BACKEND_URL;
+const backendUrl = import.meta.env.VITE_BACKEND_URL;
 
 const Login = () => {
     const {email, setEmail} = useAppContext();
@@ -26,7 +26,7 @@ const Login = () => {
             setIsSubmitting(true);
 
             const { data } = await axios.post(
-                `${backendUrl}${process.env.REACT_APP_LOGIN_ENDPOINT}`, 
+                `${backendUrl}${import.meta.env.VITE_LOGIN_ENDPOINT}`, 
                 {email, password},
             );
 

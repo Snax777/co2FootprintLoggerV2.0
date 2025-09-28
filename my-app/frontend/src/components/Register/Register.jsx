@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAppContext } from "../../context/authContext";
 import axios from "axios";
 
-const backendUrl = process.env.REACT_APP_BACKEND_URL;
+const backendUrl = import.meta.env.VITE_BACKEND_URL;
 
 const Register = () => {
     const [name, setName] = useState("");
@@ -23,7 +23,7 @@ const Register = () => {
             setIsSubmitting(true);
 
             const {data} = await axios.post(
-                `${backendUrl}${process.env.REACT_APP_REGISTER_ENDPOINT}`, 
+                `${backendUrl}${import.meta.env.VITE_REGISTER_ENDPOINT}`, 
                 {name, surname, username, email, password},
             );
 

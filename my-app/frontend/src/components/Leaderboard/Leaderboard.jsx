@@ -2,7 +2,7 @@ import axios from "axios";
 import { useState } from "react";
 import { getUTC } from "../../../../util/dateTimeToUTCConverter";
 
-const backendUrl = process.env.REACT_APP_BACKEND_URL;
+const backendUrl = import.meta.env.VITE_BACKEND_URL;
 
 const Leaderboard = () => {
     const currentDateAndTime = new Date();
@@ -27,7 +27,7 @@ const Leaderboard = () => {
         try {
             event.preventDefault();
 
-            const base = backendUrl + process.env.REACT_APP_LEADERBOARD_DATA;
+            const base = backendUrl + import.meta.env.VITE_LEADERBOARD_DATA;
 
             const { data } = await axios.get(`${base}?${dateRange}`);
 

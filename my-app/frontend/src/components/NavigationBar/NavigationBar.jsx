@@ -40,8 +40,8 @@ const NavigationBar = () => {
     };
 
     return (
-        <nav className="bg-green-700/0 flex justify-between items-center p-4 gap-x-4">
-            <div className="font-bold text-white text-lg">
+        <nav className="bg-green-800 flex justify-between items-center p-4 gap-x-4">
+            <div className="font-bold text-white text-2xl">
                 <Link to={isLoggedIn ? "/app" : "/"}>CO2Logger</Link>
             </div>
             <div className="flex text-white text-sm gap-x-4">

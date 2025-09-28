@@ -74,7 +74,7 @@ router.post('/', async (req, res, next) => {
             ) {
                 const updateUserGoals = await co2Goals.findOneAndUpdate(
                     {user: userEmail}, 
-                    { $push: {userGoals: {$each: goals}}}, 
+                    { $set: {userGoals: goals}}, 
                     {returnDocument: "after"},
                 );
 
@@ -95,7 +95,8 @@ router.post('/', async (req, res, next) => {
                             sundayDate: sundayDateAndTime,
                             userGoals: goals
                         }
-                    }
+                    }, 
+                    {returnDocument: "after"},
                 );
 
                 return res.status(200).json({
@@ -117,7 +118,7 @@ router.post('/', async (req, res, next) => {
 
             return res.status(201).json({
                 message: "New goals added successfully",
-                id: newUserGoals.value._id,
+                id: newUserGoals.value.insertedId,
             })
         }
     } catch (error) {

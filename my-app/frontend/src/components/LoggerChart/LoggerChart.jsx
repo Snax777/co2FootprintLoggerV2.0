@@ -119,7 +119,7 @@ const LoggerChart = () => {
         try {
             event.preventDefault();
 
-            const base = process.env.REACT_APP_BACKEND_URL + process.env.REACT_APP_SEARCH_DATA;
+            const base = import.meta.env.VITE_BACKEND_URL + import.meta.env.VITE_SEARCH_DATA;
             const { data } = await axios.get(
                 `${base}${dateRange}`, 
                 { headers: {Authorization: `Bearer ${authToken}`}}
