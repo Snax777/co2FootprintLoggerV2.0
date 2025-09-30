@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import pino from "pino";
 import { dataRoutes } from "./routes/dataRoutes.js";
 import { userRoutes } from "./routes/userRoutes.js";
 import { goalRoutes } from "./routes/goalRoutes.js";
@@ -12,12 +11,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const port = process.env.PORT ? process.env.PORT : 3000;
 const server = express();
-const logger = pino();
 
 server.use(express.json());
 server.use(express.urlencoded({extended: true}));
 server.use(helmet());
-server.use(cors());
+server.use(cors({ allowedHeaders: ['Authorization', 'Content-Type'] }));
 server.use(express.static(path.join(__dirname, '../dist')));
 
 server.use('/api/account', userRoutes);

@@ -1,12 +1,23 @@
 import co2Data from '../../../../util/data/co2-value.json';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
+import { getUTC } from '../../../../util/dateTimeToUTCConverter';
 import { useNavigate } from 'react-router-dom';
+import { useAppContext } from '../../context/authContext';
 
 const Home = () => {
+  const { 
+    isLoggedIn, 
+    username, 
+    email, 
+    authLoading,
+    clearAuthSession,
+    authToken
+  } = useAppContext();
+  
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
 
   const [highestStreak, setHighestStreak] = useState(0);
   const [currentStreak, setCurrentStreak] = useState(0);
@@ -14,373 +25,731 @@ const Home = () => {
   const [totalCO2, setTotalCO2] = useState(0);
   const [highestCategory, setHighestCategory] = useState(null);
   const [weeklyGoals, setWeeklyGoals] = useState([]);
-  const [newGoal, setNewGoal] = useState("");
-  const [noGoalsError, setNoGoalsError] = useState("");
+  const [newGoal, setNewGoal] = useState('');
+  const [noGoalsError, setNoGoalsError] = useState('');
   const [activityRows, setActivityRows] = useState([]);
   const [isPosting, setIsPosting] = useState(false);
   const [toast, setToast] = useState(null);
+  const [todaysData, setTodaysData] = useState([]);
 
-  const authToken = sessionStorage.getItem("auth-token");
-
-  const handleToast = (message, type = "success") => {
+  const handleToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
-    setTimeout(() => setToast(null), 1500);
-  };
+    setTimeout(() => setToast(null), 3000);
+  }, []);
 
-  // Safe flattening of activities with error handling
+  const apiConfig = useMemo(() => ({
+    headers: { 
+      Authorization: `Bearer ${authToken}`,
+      'Content-Type': 'application/json'
+    }
+  }), [authToken]);
+
+  // Updated flattenedActivities with for loops
   const flattenedActivities = useMemo(() => {
     try {
       if (!co2Data || typeof co2Data !== 'object') {
         console.error('co2Data is invalid:', co2Data);
         return [];
       }
+
+      const result = [];
+      const categories = Object.keys(co2Data);
       
-      return Object.entries(co2Data).flatMap(([category, activities], catIndex) => {
-        if (!Array.isArray(activities)) {
-          console.warn(`Activities for category ${category} is not an array:`, activities);
-          return [];
-        }
+      for (let categoryIndex = 0; categoryIndex < categories.length; categoryIndex++) {
+        const category = categories[categoryIndex];
+        const categoryActivities = co2Data[category];
         
-        return activities.map((item, actIndex) => ({
-          id: `${catIndex}-${actIndex}`,
-          category: category || 'Unknown',
-          activity: item?.activity || 'Unknown activity',
-          co2Value: typeof item?.co2Value === 'number' ? item.co2Value : 0
-        }));
-      });
+        if (!Array.isArray(categoryActivities)) {
+          console.warn(`Activities for category ${category} is not an array:`, categoryActivities);
+          continue;
+        }
+
+        for (let i = 0; i < categoryActivities.length; i++) {
+          const activityObj = categoryActivities[i];
+          
+          if (!activityObj || typeof activityObj !== 'object') {
+            console.warn(`Invalid activity object in category ${category}:`, activityObj);
+            continue;
+          }
+
+          const categoryActivity = {
+            index: `${categoryIndex}-${i}`,
+            category: category,
+            activity: activityObj.activity,
+            co2Value: activityObj.co2Value
+          };
+          
+          result.push(categoryActivity);
+        }
+      }
+
+      return result;
     } catch (err) {
       console.error('Error flattening activities:', err);
       return [];
     }
   }, []);
 
-  // --- Weekly Goals Handlers ---
-  const fetchLastWeeklyGoals = async () => {
-    if (!authToken) {
-      setNoGoalsError("Please log in to view goals");
-      setLoading(false);
-      return;
+  const fetchTodaysCO2Data = useCallback(async () => {
+    if (!authToken || !isLoggedIn) {
+      setTodaysData([]);
+      return [];
     }
 
     try {
-      const { data } = await axios.get(
-        `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000'}/api/goals/weeklyGoals`,
-        { headers: { Authorization: `Bearer ${authToken}` } }
+      setDashboardLoading(true);
+      const today = getUTC(new Date())[0];
+      const baseURL = import.meta.env.VITE_BACKEND_URL;
+      const searchEndpoint = import.meta.env.VITE_SEARCH_DATA;
+
+      const response = await axios.get(
+        `${baseURL}${searchEndpoint}?startDate=${today}&endDate=${today}`,
+        apiConfig
       );
 
-      if (!data?.data || data.data.length === 0) {
-        setWeeklyGoals([]);
-        setNoGoalsError(data?.message || "No goals found for the selected week.");
+      if (response.status === 200 && response.data?.data) {
+        setTodaysData(response.data.data);
+        return response.data.data;
       } else {
-        setWeeklyGoals(data.data);
-        setNoGoalsError("");
+        setTodaysData([]);
+        return [];
       }
-    } catch (err) {
-      console.error('Error fetching goals:', err);
-      setWeeklyGoals([]);
-      setNoGoalsError("Error fetching goals. Please try again later.");
+    } catch (error) {
+      console.error('Error fetching today\'s CO2 data:', error);
+      
+      if (error.response?.status === 401) {
+        clearAuthSession();
+        handleToast('Session expired. Please log in again.', 'error');
+      } else {
+        handleToast('Failed to fetch today\'s data', 'error');
+      }
+      
+      setTodaysData([]);
+      return [];
     } finally {
-      setLoading(false);
+      setDashboardLoading(false);
     }
-  };
+  }, [authToken, isLoggedIn, apiConfig, handleToast, clearAuthSession]);
 
-  // Fetch goals on component mount
-  useEffect(() => {
-    fetchLastWeeklyGoals();
+  const fetchStreakData = useCallback(async () => {
+    if (!authToken || !isLoggedIn) return;
+
+    try {
+      const today = getUTC(new Date())[0];
+      const baseURL = import.meta.env.VITE_BACKEND_URL;
+      const searchEndpoint = import.meta.env.VITE_SEARCH_DATA;
+
+      const response = await axios.get(
+        `${baseURL}${searchEndpoint}`,
+        apiConfig
+      );
+
+      if (response.status === 200 && response.data?.data && response.data.data.length > 0) {
+        const userData = response.data.data;
+        
+        let current = 0;
+        let highest = 0;
+        
+        userData.forEach(entry => {
+          if (entry.loggingStreak) {
+            current = Math.max(current, entry.loggingStreak);
+            highest = Math.max(highest, entry.loggingStreak);
+          }
+        });
+
+        const loggedToday = userData.some(entry => entry.utcDate === today);
+        if (!loggedToday) {
+          current = 0;
+        }
+
+        setCurrentStreak(current);
+        setHighestStreak(highest);
+      } else {
+        setCurrentStreak(0);
+        setHighestStreak(0);
+      }
+    } catch (error) {
+      console.error('Error fetching streak data:', error);
+      
+      if (error.response?.status === 401) {
+        clearAuthSession();
+        handleToast('Session expired. Please log in again.', 'error');
+      } else {
+        handleToast('Failed to fetch streak data', 'error');
+      }
+      
+      setCurrentStreak(0);
+      setHighestStreak(0);
+    }
+  }, [authToken, isLoggedIn, apiConfig, handleToast, clearAuthSession]);
+
+  const fetchGlobalAvgCO2 = useCallback(async () => {
+    if (!authToken || !isLoggedIn) return;
+
+    try {
+      const today = getUTC(new Date())[0];
+      const baseURL = import.meta.env.VITE_BACKEND_URL;
+      const avgEndpoint = import.meta.env.VITE_AVG_CO2_DATA;
+
+      const response = await axios.get(
+        `${baseURL}${avgEndpoint}?startDate=${today}&endDate=${today}`,
+        apiConfig
+      );
+
+      if (response.status === 200 && response.data?.data && response.data.data.length > 0) {
+        setGlobalAvgCO2(response.data.data[0].averageCO2 || 0);
+      } else {
+        setGlobalAvgCO2(0);
+      }
+    } catch (error) {
+      console.error('Error fetching global average CO2:', error);
+      
+      if (error.response?.status === 401) {
+        clearAuthSession();
+        handleToast('Session expired. Please log in again.', 'error');
+      } else {
+        handleToast('Failed to fetch average CO2', 'error');
+      }
+      
+      setGlobalAvgCO2(0);
+    }
+  }, [authToken, isLoggedIn, apiConfig, handleToast, clearAuthSession]);
+
+  const updateDashboard = useCallback((co2Data) => {
+    if (!co2Data || co2Data.length === 0) {
+      setTotalCO2(0);
+      setHighestCategory(null);
+      return;
+    }
+
+    let totalCO2Value = 0;
+    const categoryTotals = {};
+
+    co2Data.forEach((entry) => {
+      totalCO2Value += entry.totalCO2 || 0;
+
+      if (entry.co2Data && Array.isArray(entry.co2Data)) {
+        entry.co2Data.forEach((item) => {
+          if (item && item.category) {
+            categoryTotals[item.category] = (categoryTotals[item.category] || 0) + (item.co2Value || 0);
+          }
+        });
+      }
+    });
+
+    const highest = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1])[0];
+    if (highest) {
+      setHighestCategory({ category: highest[0], value: highest[1] });
+    } else {
+      setHighestCategory(null);
+    }
+
+    setTotalCO2(totalCO2Value);
   }, []);
 
-  const saveGoals = async (updatedGoals) => {
-    if (!authToken) {
-      handleToast("Please log in to save goals", "error");
+  const fetchWeeklyGoals = useCallback(async () => {
+    if (!authToken || !isLoggedIn) {
+      setNoGoalsError('Please log in to view goals');
       return;
     }
 
     try {
-      setWeeklyGoals(updatedGoals);
-      await axios.post(
-        `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000'}/api/goals/`,
-        { goals: updatedGoals },
-        { headers: { Authorization: `Bearer ${authToken}` } }
+      const response = await axios.get(
+        `${import.meta.env.VITE_BACKEND_URL}${import.meta.env.VITE_GET_GOALS_DATA}`,
+        apiConfig
       );
-      handleToast("Goals updated", "success");
-    } catch (err) {
-      console.error('Error saving goals:', err);
-      handleToast("Failed to save goals", "error");
-    }
-  };
 
-  const addGoal = () => {
+      if (response.status === 200 && response.data?.data) {
+        setWeeklyGoals(response.data.data.userGoals || response.data.data || []);
+        setNoGoalsError('');
+      } else {
+        setWeeklyGoals([]);
+        setNoGoalsError(response.data?.message || 'No goals found for this week.');
+      }
+    } catch (error) {
+      console.error('Error fetching goals:', error);
+      
+      if (error.response?.status === 401) {
+        clearAuthSession();
+        handleToast('Session expired. Please log in again.', 'error');
+      } else {
+        setNoGoalsError('Error fetching goals. Please try again later.');
+      }
+      
+      setWeeklyGoals([]);
+    }
+  }, [authToken, isLoggedIn, apiConfig, handleToast, clearAuthSession]);
+
+  const saveGoals = useCallback(async (updatedGoals) => {
+    if (!authToken || !isLoggedIn) {
+      handleToast('Please log in to save goals', 'error');
+      return;
+    }
+
+    try {
+      const response = await axios.post(
+        `${import.meta.env.VITE_BACKEND_URL}${import.meta.env.VITE_POST_GOALS_DATA}`,
+        { goals: updatedGoals },
+        apiConfig
+      );
+
+      if (response.status === 200) {
+        setWeeklyGoals(updatedGoals);
+        handleToast('Goals updated successfully', 'success');
+      } else {
+        handleToast('Failed to save goals', 'error');
+      }
+    } catch (error) {
+      console.error('Error saving goals:', error);
+      
+      if (error.response?.status === 401) {
+        clearAuthSession();
+        handleToast('Session expired. Please log in again.', 'error');
+      } else {
+        handleToast('Failed to save goals', 'error');
+      }
+    }
+  }, [authToken, isLoggedIn, apiConfig, handleToast, clearAuthSession]);
+
+  const addGoal = useCallback(() => {
     if (!newGoal.trim()) {
-      handleToast("Please enter a goal", "error");
+      handleToast('Please enter a goal', 'error');
       return;
     }
     const updated = [...weeklyGoals, { text: newGoal, done: false }];
-    setNewGoal("");
+    setNewGoal('');
     saveGoals(updated);
-  };
+  }, [newGoal, weeklyGoals, saveGoals, handleToast]);
 
-  const toggleGoal = (idx) => {
-    const updated = weeklyGoals.map((g, i) =>
+  const toggleGoal = useCallback((idx) => {
+    const updated = weeklyGoals.map((g, i) => 
       i === idx ? { ...g, done: !g.done } : g
     );
     saveGoals(updated);
-  };
+  }, [weeklyGoals, saveGoals]);
 
-  const removeGoal = (idx) => {
+  const removeGoal = useCallback((idx) => {
     const updated = weeklyGoals.filter((_, i) => i !== idx);
     saveGoals(updated);
-  };
+  }, [weeklyGoals, saveGoals]);
 
-  // --- Activity Row Handlers ---
-  const addActivityRow = () => {
-    setActivityRows(prev => [...prev, { id: Date.now() + Math.random(), selectedId: null }]);
-  };
+  const addActivityRow = useCallback(() => {
+    setActivityRows((prev) => [...prev, { 
+      id: Date.now() + Math.random(), 
+      selectedId: null 
+    }]);
+  }, []);
 
-  const removeActivityRow = (id) => {
-    setActivityRows(prev => prev.filter(r => r.id !== id));
-  };
+  const removeActivityRow = useCallback((id) => {
+    setActivityRows((prev) => prev.filter((r) => r.id !== id));
+  }, []);
 
-  const updateActivityRow = (id, selectedId) => {
-    setActivityRows(prev =>
-      prev.map(r => (r.id === id ? { ...r, selectedId } : r))
+  const updateActivityRow = useCallback((id, selectedId) => {
+    setActivityRows((prev) => 
+      prev.map((r) => (r.id === id ? { ...r, selectedId } : r))
     );
-  };
+  }, []);
 
-  // --- Save Activity Data Handler ---
-  const saveActivityData = async () => {
-    if (!authToken) {
-      handleToast("Please log in to save activities", "error");
+  // Updated saveActivityData to work with new index structure
+  const saveActivityData = useCallback(async () => {
+    if (!authToken || !username || !email || !isLoggedIn) {
+      handleToast('Please log in to save activities', 'error');
       return;
     }
 
     try {
       setIsPosting(true);
 
-      // Collect selected activity IDs
-      const selected = activityRows.map(r => r.selectedId).filter(Boolean);
+      const selected = activityRows.map((r) => r.selectedId).filter(Boolean);
 
       if (!selected.length) {
-        handleToast("No activities selected", "error");
+        handleToast('No activities selected', 'error');
         return;
       }
 
-      // Count occurrences per activity
-      const countMap = selected.reduce((acc, id) => {
-        acc[id] = (acc[id] || 0) + 1;
+      const countMap = selected.reduce((acc, index) => {
+        acc[index] = (acc[index] || 0) + 1;
         return acc;
       }, {});
 
-      // Build payload array
-      const payloadData = Object.entries(countMap).map(([id, count]) => {
-        const base = flattenedActivities.find(opt => opt.id === id);
-        if (!base) {
-          console.warn(`Activity with id ${id} not found`);
-          return null;
-        }
-        return {
-          id: base.id,
-          category: base.category,
-          activity: base.activity,
-          co2Value: parseFloat((base.co2Value * count).toFixed(2))
-        };
-      }).filter(Boolean); // Remove null entries
+      const payloadData = Object.entries(countMap)
+        .map(([index, count]) => {
+          const base = flattenedActivities.find((opt) => opt.index === index);
+          if (!base || !base.category) {
+            console.warn(`Activity with index ${index} not found or missing category`);
+            return null;
+          }
+          return {
+            id: base.index, // Using index as id for backend compatibility
+            category: base.category,
+            activity: base.activity,
+            co2Value: parseFloat((base.co2Value * count).toFixed(2)),
+          };
+        })
+        .filter(Boolean);
 
       if (!payloadData.length) {
-        handleToast("No valid activities selected", "error");
+        handleToast('No valid activities selected', 'error');
         return;
       }
 
-      // Compute total CO₂
       const total = payloadData.reduce((sum, item) => sum + item.co2Value, 0);
 
-      // Compute highest category for dashboard
-      const categoryTotals = payloadData.reduce((acc, item) => {
-        acc[item.category] = (acc[item.category] || 0) + item.co2Value;
-        return acc;
-      }, {});
-      
-      const highest = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1])[0];
-      if (highest) {
-        setHighestCategory({ category: highest[0], value: highest[1] });
-      }
-      setTotalCO2(total);
-
-      // Build request body for backend
       const body = {
-        username: sessionStorage.getItem("username") || "Anonymous",
-        data: payloadData,
-        totalCO2: total
+        username: username,
+        email: email,
+        co2Data: payloadData,
+        totalCO2: total,
       };
 
-      // POST to /api/data/
-      const { data } = await axios.post(
-        `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000'}/api/data/`,
+      const response = await axios.post(
+        `${import.meta.env.VITE_BACKEND_URL}${import.meta.env.VITE_POST_DATA}`,
         body,
-        { headers: { Authorization: `Bearer ${authToken}` } }
+        apiConfig
       );
 
-      handleToast(data?.message || "Activities saved successfully", "success");
+      if (response.status === 201 || response.status === 200) {
+        handleToast(response.data?.message || 'Activities saved successfully', 'success');
 
-      // Navigate after success
-      setTimeout(() => navigate("/app/loggerChart"), 1500);
-    } catch (err) {
-      console.error('Error saving activities:', err);
-      handleToast("Failed to save activities", "error");
+        const [updatedData] = await Promise.all([
+          fetchTodaysCO2Data(),
+          fetchStreakData()
+        ]);
+        
+        if (updatedData) {
+          updateDashboard(updatedData);
+        }
+
+        setTimeout(() => navigate('/app/loggerChart'), 1500);
+      }
+    } catch (error) {
+      console.error('Error saving activities:', error);
+      
+      if (error.response?.status === 401) {
+        clearAuthSession();
+        handleToast('Session expired. Please log in again.', 'error');
+      } else {
+        handleToast(
+          error.response?.data?.message || 'Failed to save activities',
+          'error'
+        );
+      }
     } finally {
       setIsPosting(false);
     }
-  };
+  }, [
+    authToken, username, email, isLoggedIn, activityRows, flattenedActivities,
+    fetchTodaysCO2Data, fetchStreakData, updateDashboard, navigate, handleToast, 
+    apiConfig, clearAuthSession
+  ]);
 
-  // Show loading state
-  if (loading) {
+  const refreshDashboard = useCallback(async () => {
+    try {
+      const [data] = await Promise.all([
+        fetchTodaysCO2Data(),
+        fetchStreakData(),
+        fetchGlobalAvgCO2()
+      ]);
+      
+      if (data) {
+        updateDashboard(data);
+      }
+      handleToast('Dashboard updated', 'success');
+    } catch (error) {
+      console.error('Error refreshing dashboard:', error);
+      handleToast('Failed to refresh dashboard', 'error');
+    }
+  }, [fetchTodaysCO2Data, fetchStreakData, fetchGlobalAvgCO2, updateDashboard, handleToast]);
+
+  useEffect(() => {
+    if (authLoading) {
+      return;
+    }
+
+    if (!isLoggedIn || !authToken) {
+      setLoading(false);
+      setNoGoalsError('Please log in to view your dashboard');
+      return;
+    }
+
+    const initializeData = async () => {
+      setLoading(true);
+      try {
+        await Promise.all([
+          fetchWeeklyGoals(),
+          fetchGlobalAvgCO2(),
+          fetchStreakData(),
+          fetchTodaysCO2Data().then(data => {
+            if (data) updateDashboard(data);
+          }),
+        ]);
+      } catch (error) {
+        console.error('Error initializing data:', error);
+        handleToast('Failed to load dashboard data', 'error');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initializeData();
+  }, [
+    isLoggedIn, 
+    authToken, 
+    authLoading,
+    fetchWeeklyGoals, 
+    fetchGlobalAvgCO2, 
+    fetchStreakData, 
+    fetchTodaysCO2Data, 
+    updateDashboard, 
+    handleToast
+  ]);
+
+  useEffect(() => {
+    console.log('Auth state:', { isLoggedIn, authLoading, authToken: !!authToken, username });
+  }, [isLoggedIn, authLoading, authToken, username]);
+
+  useEffect(() => {
+    if (!authLoading && !isLoggedIn) {
+      navigate('/app/login');
+    }
+  }, [isLoggedIn, authLoading, navigate]);
+
+  if (authLoading || loading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-lg">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600 text-lg">
+            {authLoading ? 'Checking authentication...' : 'Loading your dashboard...'}
+          </p>
+        </div>
       </div>
     );
   }
 
-  // Show error state
-  if (error) {
+  if (!isLoggedIn) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-red-600 text-lg">{error}</div>
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 py-8 px-4">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center">
+            <h1 className="text-4xl font-bold text-gray-800 mb-4">Please Log In</h1>
+            <p className="text-gray-600 text-lg mb-6">You need to be logged in to view your dashboard.</p>
+            <button
+              onClick={() => navigate('/app/login')}
+              className="bg-green-500 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition-colors font-semibold"
+            >
+              Go to Login
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex gap-8 p-6">
-      <div className="flex-1 space-y-8">
-        {/* Weekly Goals */}
-        <section className="bg-white shadow rounded p-6">
-          <h2 className="text-xl font-bold mb-4">Weekly Goals</h2>
-          {noGoalsError && <p className="text-red-600 mb-4">{noGoalsError}</p>}
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 py-8 px-4">
+      <div className="max-w-7xl mx-auto">
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-gray-800 mb-2">Welcome back, {username || 'User'}!</h1>
+          <p className="text-gray-600 text-lg">Track and reduce your carbon footprint</p>
+        </div>
 
-          <div className="flex gap-2 mb-4">
-            <input
-              type="text"
-              value={newGoal}
-              onChange={(e) => setNewGoal(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && addGoal()}
-              placeholder="Type a new goal..."
-              className="border rounded px-3 py-2 flex-1"
-            />
-            <button
-              type="button"
-              onClick={addGoal}
-              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-            >
-              Add Goal
-            </button>
-          </div>
+        <div className="grid lg:grid-cols-2 gap-8">
+          <div className="space-y-8">
+            <section className="bg-white rounded-2xl shadow-lg p-6">
+              <h2 className="text-2xl font-bold mb-4 text-gray-800">Weekly Goals</h2>
+              {noGoalsError && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                  <p className="text-yellow-800">{noGoalsError}</p>
+                </div>
+              )}
 
-          <ul className="space-y-2">
-            {weeklyGoals.map((goal, idx) => (
-              <li key={idx} className="flex items-center gap-2">
+              <div className="flex gap-2 mb-4">
                 <input
-                  type="checkbox"
-                  checked={Boolean(goal.done)}
-                  onChange={() => toggleGoal(idx)}
-                  className="w-4 h-4"
+                  type="text"
+                  value={newGoal}
+                  onChange={(e) => setNewGoal(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && addGoal()}
+                  placeholder="What's your goal for this week?"
+                  className="border border-gray-300 rounded-lg px-4 py-3 flex-1 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 />
-                <span className={`border rounded px-2 py-1 flex-1 ${goal.done ? 'line-through text-gray-500' : ''}`}>
-                  {goal.text || goal.title || "(Untitled goal)"}
-                </span>
                 <button
                   type="button"
-                  onClick={() => removeGoal(idx)}
-                  className="text-red-600 hover:underline ml-2"
+                  onClick={addGoal}
+                  className="bg-green-500 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition-colors font-semibold"
                 >
-                  Remove
+                  Add Goal
                 </button>
-              </li>
-            ))}
-          </ul>
-        </section>
+              </div>
 
-        {/* Dashboard */}
-        <section className="bg-white shadow rounded p-6">
-          <h2 className="text-xl font-bold mb-4">Dashboard</h2>
-          <div className="space-y-2">
-            <p><strong>Highest Streak:</strong> {highestStreak} days</p>
-            <p><strong>Current Streak:</strong> {currentStreak} days</p>
-            <p><strong>Global Avg CO₂:</strong> {globalAvgCO2} kg</p>
-            <p><strong>Total CO₂:</strong> {totalCO2} kg</p>
-            <p><strong>Highest Category:</strong>{" "}
-              {highestCategory ? `${highestCategory.category} (${highestCategory.value} kg CO\u2082)` : "—"}
-            </p>
+              <div className="space-y-3">
+                {weeklyGoals.map((goal, idx) => (
+                  <div key={idx} className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(goal.done)}
+                      onChange={() => toggleGoal(idx)}
+                      className="w-5 h-5 text-green-500 rounded focus:ring-green-500"
+                    />
+                    <span className={`flex-1 text-lg ${goal.done ? 'line-through text-gray-500' : 'text-gray-700'}`}>
+                      {goal.text || goal.title || '(Untitled goal)'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeGoal(idx)}
+                      className="text-red-500 hover:text-red-700 transition-colors p-2"
+                      title="Remove goal"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="bg-white rounded-2xl shadow-lg p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Your Dashboard</h2>
+                <button
+                  onClick={refreshDashboard}
+                  disabled={dashboardLoading}
+                  className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50 transition-colors font-semibold"
+                >Refresh Data</button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-xl border border-blue-200">
+                  <p className="text-sm text-blue-600 font-semibold mb-1">Highest Streak</p>
+                  <p className="text-2xl font-bold text-blue-800">{highestStreak} days</p>
+                </div>
+                <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl border border-green-200">
+                  <p className="text-sm text-green-600 font-semibold mb-1">Current Streak</p>
+                  <p className="text-2xl font-bold text-green-800">{currentStreak} days</p>
+                </div>
+                <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-xl border border-purple-200">
+                  <p className="text-sm text-purple-600 font-semibold mb-1">Global Avg CO₂</p>
+                  <p className="text-2xl font-bold text-purple-800">{globalAvgCO2} kg</p>
+                </div>
+                <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-xl border border-orange-200">
+                  <p className="text-sm text-orange-600 font-semibold mb-1">Today's CO₂</p>
+                  <p className="text-2xl font-bold text-orange-800">{totalCO2.toFixed(2)} kg</p>
+                </div>
+              </div>
+
+              {highestCategory && (
+                <div className="bg-gradient-to-br from-green-50 to-emerald-100 rounded-xl border border-green-200 p-4">
+                  <p className="text-sm text-green-800 font-semibold mb-2">Highest Impact Category</p>
+                  <p className="text-lg font-bold text-green-900">
+                    {highestCategory.category}: {highestCategory.value.toFixed(2)} kg CO₂
+                  </p>
+                </div>
+              )}
+
+              {todaysData.length === 0 && !dashboardLoading && (
+                <div className="bg-gradient-to-br from-yellow-50 to-amber-100 rounded-xl border border-yellow-200 p-4 mt-4">
+                  <p className="text-yellow-800 font-semibold">
+                    No activities logged today. Start logging to see your impact!
+                  </p>
+                </div>
+              )}
+            </section>
           </div>
-        </section>
+
+          <div className="space-y-8">
+            <section className="bg-white rounded-2xl shadow-lg p-6">
+              <h2 className="text-2xl font-bold mb-4 text-gray-800">Log Activities</h2>
+
+              <div className="flex gap-3 mb-6">
+                <button
+                  type="button"
+                  onClick={addActivityRow}
+                  className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors font-semibold flex items-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Add Activity
+                </button>
+
+                <button
+                  type="button"
+                  onClick={saveActivityData}
+                  disabled={isPosting}
+                  className={`px-6 py-3 rounded-lg transition-colors font-semibold flex items-center gap-2 ${
+                    isPosting
+                      ? 'bg-gray-400 cursor-not-allowed text-white'
+                      : 'bg-green-500 hover:bg-green-600 text-white'
+                  }`}
+                >Save & View Chart</button>
+              </div>
+
+              {activityRows.length === 0 ? (
+                <div className="text-center py-12 bg-gray-50 rounded-xl border-2 border-dashed border-gray-300">
+                  <div className="text-gray-400 text-6xl mb-4">📊</div>
+                  <p className="text-gray-500 text-lg mb-2">No activities added yet</p>
+                  <p className="text-gray-400">Click "Add Activity" to start logging your CO₂ emissions</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {activityRows.map((row) => (
+                    <div key={row.id} className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors">
+                      <select
+                        value={row.selectedId ?? ''}
+                        onChange={(e) => updateActivityRow(row.id, e.target.value)}
+                        className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      >
+                        <option value="">Select an activity...</option>
+                        {flattenedActivities.map((opt) => (
+                          <option key={opt.index} value={opt.index}>
+                            {opt.category} — {opt.activity} ({opt.co2Value} kg)
+                          </option>
+                        ))}
+                      </select>
+
+                      <button
+                        type="button"
+                        onClick={() => removeActivityRow(row.id)}
+                        className="text-red-500 hover:text-red-700 transition-colors p-3"
+                        title="Remove activity"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {activityRows.length > 0 && (
+                <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
+                  <p className="text-blue-800 text-sm flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                    <strong>Tip:</strong> Select the same activity multiple times to log repetitions.
+                  </p>
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
       </div>
 
-      {/* Log Activities */}
-      <div className="flex-1 space-y-8">
-        <section className="bg-white shadow rounded p-6">
-          <h2 className="text-xl font-bold mb-4">Log Activities</h2>
-
-          <div className="flex gap-2 mb-4">
-            <button
-              type="button"
-              onClick={addActivityRow}
-              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-            >
-              Add activity row
-            </button>
-
-            <button
-              type="button"
-              onClick={saveActivityData}
-              disabled={isPosting}
-              className={`bg-green-600 text-white px-4 py-2 rounded ${
-                isPosting ? "opacity-60 cursor-not-allowed" : "hover:bg-green-500"
-              }`}
-            >
-              {isPosting ? "Saving..." : "Save & Go to Chart"}
-            </button>
-          </div>
-
-          {activityRows.length === 0 ? (
-            <p className="text-gray-500">No activities added yet. Click "Add activity row" to start.</p>
-          ) : (
-            <ul className="space-y-2">
-              {activityRows.map(row => (
-                <li key={row.id} className="flex items-center gap-3">
-                  <select
-                    value={row.selectedId ?? ""}
-                    onChange={(e) => updateActivityRow(row.id, e.target.value)}
-                    className="border rounded px-3 py-2 flex-1"
-                  >
-                    <option value="">Select an activity...</option>
-                    {flattenedActivities.map(opt => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.category} — {opt.activity} ({opt.co2Value} kg)
-                      </option>
-                    ))}
-                  </select>
-
-                  <button
-                    type="button"
-                    onClick={() => removeActivityRow(row.id)}
-                    className="text-red-600 hover:underline whitespace-nowrap"
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
-
-      {/* Toast */}
       {toast && (
         <div
-          className={`fixed bottom-4 right-4 px-4 py-2 rounded shadow-lg text-white z-50 ${
-            toast.type === "success" ? "bg-green-500" : "bg-red-500"
+          className={`fixed bottom-6 right-6 px-6 py-4 rounded-xl shadow-2xl text-white font-semibold z-50 transition-all duration-300 animate-slide-in ${
+            toast.type === 'success' 
+              ? 'bg-green-500 border border-green-400' 
+              : 'bg-red-500 border border-red-400'
           }`}
         >
-          {toast.message}
+          <div className="flex items-center gap-3">
+            <div className={`w-3 h-3 rounded-full ${toast.type === 'success' ? 'bg-green-200' : 'bg-red-200'}`}></div>
+            <span>{toast.message}</span>
+          </div>
         </div>
       )}
     </div>

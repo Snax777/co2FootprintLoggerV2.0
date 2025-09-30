@@ -78,6 +78,7 @@ router.post('/', async (req, res, next) => {
                     {returnDocument: "after"},
                 );
 
+                logger.info("New goals of user successfully appended");
                 return res.status(200).json({
                     message: "New goals appended successfully",
                     id: updateUserGoals.value._id,
@@ -99,9 +100,10 @@ router.post('/', async (req, res, next) => {
                     {returnDocument: "after"},
                 );
 
+                logger.info("New goals of user successfully added");
                 return res.status(200).json({
                     message: "New goals added successfully",
-                    id: updateUserGoals.value._id,
+                    id: updateUserGoals._id
                 })
             }
         } else {
@@ -116,9 +118,10 @@ router.post('/', async (req, res, next) => {
                 userGoals: goals
             });
 
+            logger.info("New goals of user successfully added");
             return res.status(201).json({
                 message: "New goals added successfully",
-                id: newUserGoals.value.insertedId,
+                id: newUserGoals.insertedId,
             })
         }
     } catch (error) {
@@ -181,10 +184,12 @@ router.get("/weeklyGoals", async (req, res, next) => {
         });
 
         if (!findUserGoals) {
+            logger.info("Goals of user not found");
             return res.status(404).json({
                 message: "Goals of user not found"
             });
         } else {
+            logger.info("Goals of user successfully retrieved");
             return res.status(200).json({
                 data: findUserGoals
             });

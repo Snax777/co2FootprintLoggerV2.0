@@ -234,7 +234,7 @@ router.delete('/delete', async (req, res, next) => {
         
         const authHeader = req.header('Authorization');
         
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        if (!authHeader) {
             logger.error("Access denied. No token provided");
         
             return res.status(401).json({
@@ -255,14 +255,6 @@ router.delete('/delete', async (req, res, next) => {
             });
         }
 
-        if (!req.body.password) {
-            logger.info("User did not input password");
-
-            res.status(400).json({
-                message: "Password is required",
-            });
-        }
-
         const db1 = await connectToUserDB();
         const db2 = await co2DataDB();
 
@@ -273,7 +265,6 @@ router.delete('/delete', async (req, res, next) => {
         const collection2 = db2.collection("co2Data");
         const collection3 = db2.collection("co2Goals");
         const currentUser = await collection1.findOne({email: userEmail});
-        const passwordResult = await bcryptjs.compare(req.body.password, currentUser.hash);
 
         if (!currentUser) {
             logger.error(`Authenticated user ${userEmail} not found in database`);
@@ -281,55 +272,49 @@ router.delete('/delete', async (req, res, next) => {
             return res.status(404).json({ message: "User account not found" });
         }
 
-        if (passwordResult) {
-            let deleteUser = null;
-            let deleteUserData = null;
-            let deleteUserGoals = null;
+        let deleteUser = null;
+        let deleteUserData = null;
+        let deleteUserGoals = null;
 
-            if (req.body.deleteData === true) {
-                deleteUserData = await collection2.deleteMany({email: userEmail});
-                deleteUserGoals = await collection3.deleteOne({email: userEmail});
-            }
+        const shouldDeleteData = req.body.deleteData === true || req.body.deleteUser === true;
 
-            if (req.body.deleteUser === true) {
-                deleteUser = await collection1.deleteOne({email: userEmail});
-            }
+        if (shouldDeleteData) {
+            deleteUserData = await collection2.deleteMany({email: userEmail});
+            deleteUserGoals = await collection3.deleteOne({email: userEmail});
+        }
 
-            const dataDeleted = deleteUserData?.deletedCount > 0;
-            const userDeleted = deleteUser?.deletedCount > 0;
-            const userGoalsDeleted = deleteUserGoals?.deletedCount > 0;
+        if (req.body.deleteUser === true) {
+            deleteUser = await collection1.deleteOne({email: userEmail});
+        }
 
-            if (!dataDeleted && !userDeleted && !userGoalsDeleted) {
-                logger.warn(`No deletions performed for ${userEmail} - both flags were false`);
-                return res.status(400).json({
-                    message: "No deletions performed.",
-                });
-            }
+        const dataDeleted = deleteUserData?.deletedCount > 0;
+        const userDeleted = deleteUser?.deletedCount > 0;
+        const userGoalsDeleted = deleteUserGoals?.deletedCount > 0;
 
-            return res.status(200).json({
-                message: "Deletion successful",
-                deletionsSuccessful: {
-                    data: {
-                        performed: dataDeleted,
-                        recordsDeleted: deleteUserData?.deletedCount || 0,
-                    },
-                    user: {
-                        performed: userDeleted,
-                        accountDeleted: userDeleted
-                    }, 
-                    goals: {
-                        performed: userGoalsDeleted,
-                        goalsDeleted: userGoalsDeleted
-                    }
-                }
-            });
-        } else {
-            logger.error(`User with email ${userEmail} entered wrong password`);
-
-            return res.status(401).json({
-                message: "Incorrect password",
+        if (!shouldDeleteData && !req.body.deleteUser) {
+            logger.warn(`No deletions performed for ${userEmail} - both flags were false`);
+            return res.status(400).json({
+                message: "No deletions performed.",
             });
         }
+
+        return res.status(200).json({
+            message: "Deletion successful",
+            deletionsSuccessful: {
+                data: {
+                    performed: shouldDeleteData,
+                    recordsDeleted: deleteUserData?.deletedCount || 0,
+                },
+                user: {
+                    performed: !!req.body.deleteUser,
+                    accountDeleted: userDeleted
+                }, 
+                goals: {
+                    performed: shouldDeleteData,
+                    goalsDeleted: deleteUserGoals?.deletedCount || 0
+                }
+            }
+        });
     } catch (error) {
         logger.error("Server failed to connect to 'UserDB' & 'CO2UserDB' databases: ", error.message);
         next(error);
