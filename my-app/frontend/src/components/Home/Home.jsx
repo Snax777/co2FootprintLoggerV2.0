@@ -402,6 +402,18 @@ const Home = () => {
         totalCO2: total,
       };
 
+      // ADDED: Display the payload that's about to be sent
+      console.log('📤 Payload to be sent to backend:', JSON.stringify(body, null, 2));
+      console.log('🔍 Payload details:', {
+        totalActivities: payloadData.length,
+        totalCO2: total,
+        activities: payloadData.map(item => ({
+          category: item.category,
+          activity: item.activity,
+          co2Value: item.co2Value
+        }))
+      });
+
       const response = await axios.post(
         `${import.meta.env.VITE_BACKEND_URL}${import.meta.env.VITE_POST_DATA}`,
         body,

@@ -26,7 +26,6 @@ router.post('/', async (req, res, next) => {
 
         if (!authHeader) {
             logger.error("Access denied. No token provided (/ POST request)");
-
             return res.status(401).json({
                 message: "Access denied. No token provided"
             });
@@ -39,7 +38,6 @@ router.post('/', async (req, res, next) => {
 
         if (!userId || !userEmail) {
             logger.error("User not logged in");
-
             return res.status(400).json({
                 message: "User not logged in",
             });
@@ -49,12 +47,29 @@ router.post('/', async (req, res, next) => {
 
         if (!errors.isEmpty()) {
             console.error("Validation error(s) in the '/' POST request: ", errors.array());
-
             return res.status(400).json({error: errors.array()});
         }
 
-        const db = await co2DataDB();
+        // ADDED: Comprehensive logging
+        console.log('🔍 INCOMING REQUEST BODY:', JSON.stringify(req.body, null, 2));
+        console.log('📥 co2Data type:', typeof req.body.co2Data, 'Is array:', Array.isArray(req.body.co2Data));
+        
+        if (req.body.co2Data && Array.isArray(req.body.co2Data)) {
+            console.log('📊 co2Data array length:', req.body.co2Data.length);
+            req.body.co2Data.forEach((item, index) => {
+                console.log(`   Item ${index}:`, JSON.stringify(item));
+                // ADDED: Check each item's structure
+                console.log(`   🔍 Item ${index} details:`, {
+                    hasId: !!item.id,
+                    hasCategory: !!item.category,
+                    hasActivity: !!item.activity,
+                    hasCo2Value: typeof item.co2Value,
+                    co2Value: item.co2Value
+                });
+            });
+        }
 
+        const db = await co2DataDB();
         logger.info("Server connected to 'CO2DataDB' database");
 
         const newCO2Data = Array.isArray(req.body.co2Data) ? req.body.co2Data : [req.body.co2Data];
@@ -65,20 +80,39 @@ router.post('/', async (req, res, next) => {
         let prevDate = new Date(utcDateAndTime[0]);
 
         prevDate.setDate(prevDate.getDate() - 1);
-
         prevDate = getUTC(prevDate)[0];
 
         const co2Data = db.collection("co2Data");
+        
+        // ADDED: Log what we're about to query
+        console.log('🔍 Querying for existing data:', {
+            email: userEmail,
+            utcDate: utcDateAndTime[0]
+        });
+
         const existingCO2Data = await co2Data.findOne({
             email: userEmail, 
             utcDate: utcDateAndTime[0],
         });
+
+        console.log('📋 Existing data found:', !!existingCO2Data);
+        if (existingCO2Data) {
+            console.log('📝 Existing document structure:', {
+                hasCo2Data: !!existingCO2Data.co2Data,
+                co2DataType: typeof existingCO2Data.co2Data,
+                isCo2DataArray: Array.isArray(existingCO2Data.co2Data),
+                co2DataLength: existingCO2Data.co2Data ? existingCO2Data.co2Data.length : 'N/A'
+            });
+        }
+
         const previousCO2Data = await co2Data.findOne({
             email: userEmail,
             utcDate: prevDate,
         });
 
         if (!existingCO2Data) {
+            console.log('🆕 Creating NEW document for date:', utcDateAndTime[0]);
+            
             const lastPrevious = await co2Data.findOne({
                 email: userEmail,
                 utcDate: { $lt: utcDateAndTime[0] },
@@ -112,7 +146,7 @@ router.post('/', async (req, res, next) => {
                 newHighest = newCurrentStreak;
             }
 
-            const addNewCO2Data = await co2Data.insertOne({
+            const newDocument = {
                 username: req.body.username,
                 email: userEmail,
                 localDate,
@@ -123,7 +157,17 @@ router.post('/', async (req, res, next) => {
                 totalCO2,
                 currentStreak: newCurrentStreak,
                 highestStreak: newHighest
-            });
+            };
+
+            // ADDED: Log the complete document before insertion
+            console.log('💾 Inserting NEW document:', JSON.stringify(newDocument, null, 2));
+            console.log('📤 newCO2Data being stored:', JSON.stringify(newCO2Data, null, 2));
+
+            const addNewCO2Data = await co2Data.insertOne(newDocument);
+
+            // ADDED: Verify the insertion by reading back the document
+            const insertedDoc = await co2Data.findOne({_id: addNewCO2Data.insertedId});
+            console.log('✅ INSERTED document verification:', JSON.stringify(insertedDoc, null, 2));
 
             logger.info(`CO2 data successfully added`);
             return res.status(201).json({
@@ -131,6 +175,11 @@ router.post('/', async (req, res, next) => {
                 id: addNewCO2Data.insertedId,
             });
         } else {
+            console.log('🔄 UPDATING existing document');
+            console.log('📤 New co2Data to append:', JSON.stringify(newCO2Data, null, 2));
+            console.log('➕ Total CO2 to add:', totalCO2);
+            console.log('📝 Current co2Data in document:', JSON.stringify(existingCO2Data.co2Data, null, 2));
+
             const updateCO2Data = await co2Data.findOneAndUpdate(
                 {email: userEmail, utcDate: utcDateAndTime[0]},
                 {
@@ -141,6 +190,9 @@ router.post('/', async (req, res, next) => {
                 {returnDocument: 'after'},
             );
 
+            // ADDED: Log the complete updated document
+            console.log('✅ UPDATED document:', JSON.stringify(updateCO2Data, null, 2));
+
             logger.info(`New CO2 data of user ${existingCO2Data.username} successfully appended`);
             return res.status(200).json({
                 message: "New data appended successfully",
@@ -148,6 +200,11 @@ router.post('/', async (req, res, next) => {
             });
         }
     } catch (error) {
+        // ADDED: More detailed error logging
+        console.error('❌ Error in POST / endpoint:', error.message);
+        console.error('🔍 Error stack:', error.stack);
+        console.error('📦 Request body that caused error:', JSON.stringify(req.body, null, 2));
+        
         logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
         next(error);
     }
