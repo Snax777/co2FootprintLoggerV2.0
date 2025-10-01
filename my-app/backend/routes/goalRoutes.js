@@ -7,7 +7,8 @@ import jwt from "jsonwebtoken";
 import { 
     getUTC, 
     getMondayDateAndTime, 
-    getSundayDateAndTime
+    getSundayDateAndTime,
+    formatToGBLocale
  } from "../../util/dateTimeToUTCConverter.js";
 
 const router = Router();
@@ -47,7 +48,7 @@ router.post('/', async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/' POST request: ", errors.array());
+            logger.error("Validation error(s) in the '/' POST request");
 
             return res.status(400).json({error: errors.array()});
         }
@@ -56,6 +57,7 @@ router.post('/', async (req, res, next) => {
 
         logger.info("Server connected to 'CO2DataDB' database");
 
+        const localDateAndTime = formatToGBLocale(new Date());
         const utcDateAndTime = getUTC(new Date());
         const goals = req.body.goals;
 
@@ -85,12 +87,13 @@ router.post('/', async (req, res, next) => {
                 })
             } else {
                 const mondayDateAndTime = getMondayDateAndTime(utcDateAndTime[0]);
-                const sundayDateAndTime = getSundayDateAndTime(mondayDateAndTime[0]);
+                const sundayDateAndTime = getSundayDateAndTime();
                 
                 const updateUserGoals = await co2Goals.findOneAndUpdate(
                     {user: userEmail}, 
                     {
                         $set: {
+                            localDateAndTime,
                             logDate: utcDateAndTime,
                             mondayDate: mondayDateAndTime,
                             sundayDate: sundayDateAndTime,
@@ -108,10 +111,11 @@ router.post('/', async (req, res, next) => {
             }
         } else {
             const mondayDateAndTime = getMondayDateAndTime(utcDateAndTime[0]);
-            const sundayDateAndTime = getSundayDateAndTime(mondayDateAndTime[0]);
+            const sundayDateAndTime = getSundayDateAndTime();
             
             const newUserGoals = await co2Goals.insertOne({
                 user: userEmail,
+                localDateAndTime,
                 logDate: utcDateAndTime,
                 mondayDate: mondayDateAndTime[0],
                 sundayDate: sundayDateAndTime[0],
@@ -171,9 +175,8 @@ router.get("/weeklyGoals", async (req, res, next) => {
 
         const currentDateAndTime = new Date();
         const utcDateAndTime = getUTC(currentDateAndTime);
-
         const mondayDate = getMondayDateAndTime(utcDateAndTime[0])[0];
-        const sundayDate = getSundayDateAndTime(mondayDate)[0];
+        const sundayDate = getSundayDateAndTime()[0];
 
         const findUserGoals = await co2Goals.findOne({
             user: userEmail, 
@@ -195,7 +198,7 @@ router.get("/weeklyGoals", async (req, res, next) => {
             });
         }
     } catch (error) {
-        logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
+        logger.error("Server failed to connect to 'CO2DataDB' database: ", error);
         next(error);
     }
 });

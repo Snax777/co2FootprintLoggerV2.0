@@ -172,11 +172,11 @@ const Leaderboard = () => {
         <div className="min-h-screen bg-gradient-to-br from-green-500/10 to-blue-500/10 py-8 px-4">
             <div className="max-w-6xl mx-auto">
                 {/* Header */}
-                <div className="text-center mb-8">
-                    <h1 className="text-4xl font-bold text-gray-800 mb-4">
+                <div className="text-center text-white mb-8">
+                    <h1 className="text-4xl font-bold mb-4">
                         CO<sub>2</sub> Emissions Leaderboard
                     </h1>
-                    <p className="text-gray-600 text-lg">
+                    <p className="text-lg">
                         Compare your carbon footprint with other environmentally conscious users
                     </p>
                 </div>

@@ -57,7 +57,6 @@ const Login = () => {
             );
 
             if (data.authtoken && data.username && data.email && data.expiresAt) {
-                console.log(data.authtoken);
                 updateAuthStatus(
                     data.authtoken,
                     data.username,
@@ -73,8 +72,6 @@ const Login = () => {
                 setErrorMessage("Invalid response from server");
             }
         } catch (error) {
-            console.error("Login error:", error);
-            
             let errorMsg = "Something went wrong. Please try again later.";
             
             if (error.response) {
@@ -201,9 +198,8 @@ const Login = () => {
                     </div>
                 </div>
 
-                {/* Additional Info */}
                 <div className="text-center mt-6">
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-white">
                         Track your carbon footprint and make a positive environmental impact
                     </p>
                 </div>

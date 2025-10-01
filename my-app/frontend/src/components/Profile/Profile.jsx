@@ -4,14 +4,14 @@ import { useAppContext } from "../../context/authContext";
 import { useNavigate } from "react-router-dom";
 
 const Profile = () => {
-  const { username, email, setUsername, setEmail } = useAppContext();
+  const { username, email, setUsername, setEmail, authToken } = useAppContext();
   const [logDate, setLogDate] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [toast, setToast] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const navigate = useNavigate();
 
-  const authToken = sessionStorage.getItem("auth-token");
+  // const authToken = sessionStorage.getItem("auth-token");
 
   // Memoized toast handler
   const handleToast = useCallback((message, type = "success") => {
@@ -40,22 +40,24 @@ const Profile = () => {
         apiConfig
       );
 
-      setLogDate(data.data?.[0]?.utcDate || "N/A");
+      setLogDate(data.data[0].utcDate || "N/A");
     } catch (error) {
-      console.error("Failed to fetch log data:", error);
-      handleToast(
-        error.response?.data?.message || "Failed to retrieve last log date. Please try again later.", 
-        "error"
-      );
+      if (email && authToken) {
+        handleToast(
+          error.response?.data?.message || "Failed to retrieve last log date. Please log your activities", 
+          "error"
+        );
+      }
+      
       setLogDate("N/A");
     }
-  }, [authToken, apiConfig, handleToast]);
+  }, [authToken, apiConfig, handleToast, email]);
 
   // Password change handler
   const handlePasswordChange = useCallback(async (event) => {
     event.preventDefault();
     
-    if (!authToken) {
+    if (!authToken || !username || !email) {
       handleToast("Please log in to change password", "error");
       return;
     }

@@ -7,7 +7,6 @@ import jwt from "jsonwebtoken";
 import { 
     getUTC, 
     getMondayDateAndTime, 
-    getSundayDateAndTime, 
     formatToGBLocale 
 } from "../../util/dateTimeToUTCConverter.js";
 
@@ -46,30 +45,12 @@ router.post('/', async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            console.error("Validation error(s) in the '/' POST request: ", errors.array());
+            console.error("Validation error(s) in the '/' POST request");
             return res.status(400).json({error: errors.array()});
         }
 
-        // ADDED: Comprehensive logging
-        console.log('🔍 INCOMING REQUEST BODY:', JSON.stringify(req.body, null, 2));
-        console.log('📥 co2Data type:', typeof req.body.co2Data, 'Is array:', Array.isArray(req.body.co2Data));
-        
-        if (req.body.co2Data && Array.isArray(req.body.co2Data)) {
-            console.log('📊 co2Data array length:', req.body.co2Data.length);
-            req.body.co2Data.forEach((item, index) => {
-                console.log(`   Item ${index}:`, JSON.stringify(item));
-                // ADDED: Check each item's structure
-                console.log(`   🔍 Item ${index} details:`, {
-                    hasId: !!item.id,
-                    hasCategory: !!item.category,
-                    hasActivity: !!item.activity,
-                    hasCo2Value: typeof item.co2Value,
-                    co2Value: item.co2Value
-                });
-            });
-        }
-
         const db = await co2DataDB();
+
         logger.info("Server connected to 'CO2DataDB' database");
 
         const newCO2Data = Array.isArray(req.body.co2Data) ? req.body.co2Data : [req.body.co2Data];
@@ -83,70 +64,51 @@ router.post('/', async (req, res, next) => {
         prevDate = getUTC(prevDate)[0];
 
         const co2Data = db.collection("co2Data");
-        
-        // ADDED: Log what we're about to query
-        console.log('🔍 Querying for existing data:', {
-            email: userEmail,
-            utcDate: utcDateAndTime[0]
-        });
-
         const existingCO2Data = await co2Data.findOne({
             email: userEmail, 
             utcDate: utcDateAndTime[0],
         });
 
-        console.log('📋 Existing data found:', !!existingCO2Data);
-        if (existingCO2Data) {
-            console.log('📝 Existing document structure:', {
-                hasCo2Data: !!existingCO2Data.co2Data,
-                co2DataType: typeof existingCO2Data.co2Data,
-                isCo2DataArray: Array.isArray(existingCO2Data.co2Data),
-                co2DataLength: existingCO2Data.co2Data ? existingCO2Data.co2Data.length : 'N/A'
-            });
-        }
-
-        const previousCO2Data = await co2Data.findOne({
-            email: userEmail,
-            utcDate: prevDate,
-        });
+        let newCurrentStreak = 1;
+        let newHighest = 1;
 
         if (!existingCO2Data) {
-            console.log('🆕 Creating NEW document for date:', utcDateAndTime[0]);
-            
-            const lastPrevious = await co2Data.findOne({
-                email: userEmail,
-                utcDate: { $lt: utcDateAndTime[0] },
-            }, {
-                sort: { utcDate: -1 }
-            });
+            const historicalMax = await co2Data.aggregate([
+                { $match: { email: userEmail } },
+                { $group: { _id: null, maxHighest: { $max: "$highestStreak" } } }
+            ]).toArray();
+            let previousHighest = historicalMax[0]?.maxHighest || 0;
+            const mondayDateString = getMondayDateAndTime(utcDateAndTime[0])[0];
+            let current = new Date(utcDateAndTime[0]);
+            let streak = 1; 
 
-            let previousHighest = lastPrevious ? lastPrevious.highestStreak : 0;
-            let newCurrentStreak = 1;
-            let newHighest = previousHighest;
+            while (true) {
+                let prev = new Date(current);
+                prev.setDate(prev.getDate() - 1);
+                prev = getUTC(prev)[0];
 
-            if (previousCO2Data) {
-                const mondayDateString = getMondayDateAndTime(utcDateAndTime[0])[0];
-                const sundayDateString = getSundayDateAndTime(mondayDateString)[0];
+                if (prev < mondayDateString) break;
 
-                if (previousCO2Data.utcDate >= mondayDateString && previousCO2Data.utcDate <= sundayDateString) {
-                    newCurrentStreak = previousCO2Data.currentStreak + 1;
-                    newCurrentStreak = Math.min(newCurrentStreak, 7);
+                const prevEntry = await co2Data.findOne({
+                    email: userEmail,
+                    utcDate: prev
+                });
 
-                    if (newCurrentStreak > previousHighest) {
-                        newHighest = newCurrentStreak;
-                    }
+                if (!prevEntry) break;
+                streak++;
 
-                    logger.info(
-                        `Logging streak of ${req.body.username} on ${utcDateAndTime[0]} is successfully updated to ${newCurrentStreak}`
-                    );
-                }
+                current = prev;
             }
 
-            if (newHighest === 0) {
+            newCurrentStreak = Math.min(streak, 7);
+
+            if (newCurrentStreak > previousHighest) {
                 newHighest = newCurrentStreak;
+            } else {
+                newHighest = previousHighest;
             }
 
-            const newDocument = {
+            const addNewCO2Data = await co2Data.insertOne({
                 username: req.body.username,
                 email: userEmail,
                 localDate,
@@ -157,17 +119,7 @@ router.post('/', async (req, res, next) => {
                 totalCO2,
                 currentStreak: newCurrentStreak,
                 highestStreak: newHighest
-            };
-
-            // ADDED: Log the complete document before insertion
-            console.log('💾 Inserting NEW document:', JSON.stringify(newDocument, null, 2));
-            console.log('📤 newCO2Data being stored:', JSON.stringify(newCO2Data, null, 2));
-
-            const addNewCO2Data = await co2Data.insertOne(newDocument);
-
-            // ADDED: Verify the insertion by reading back the document
-            const insertedDoc = await co2Data.findOne({_id: addNewCO2Data.insertedId});
-            console.log('✅ INSERTED document verification:', JSON.stringify(insertedDoc, null, 2));
+            });
 
             logger.info(`CO2 data successfully added`);
             return res.status(201).json({
@@ -175,11 +127,6 @@ router.post('/', async (req, res, next) => {
                 id: addNewCO2Data.insertedId,
             });
         } else {
-            console.log('🔄 UPDATING existing document');
-            console.log('📤 New co2Data to append:', JSON.stringify(newCO2Data, null, 2));
-            console.log('➕ Total CO2 to add:', totalCO2);
-            console.log('📝 Current co2Data in document:', JSON.stringify(existingCO2Data.co2Data, null, 2));
-
             const updateCO2Data = await co2Data.findOneAndUpdate(
                 {email: userEmail, utcDate: utcDateAndTime[0]},
                 {
@@ -190,9 +137,6 @@ router.post('/', async (req, res, next) => {
                 {returnDocument: 'after'},
             );
 
-            // ADDED: Log the complete updated document
-            console.log('✅ UPDATED document:', JSON.stringify(updateCO2Data, null, 2));
-
             logger.info(`New CO2 data of user ${existingCO2Data.username} successfully appended`);
             return res.status(200).json({
                 message: "New data appended successfully",
@@ -200,11 +144,6 @@ router.post('/', async (req, res, next) => {
             });
         }
     } catch (error) {
-        // ADDED: More detailed error logging
-        console.error('❌ Error in POST / endpoint:', error.message);
-        console.error('🔍 Error stack:', error.stack);
-        console.error('📦 Request body that caused error:', JSON.stringify(req.body, null, 2));
-        
         logger.error("Server failed to connect to 'CO2DataDB' database: ", error.message);
         next(error);
     }
@@ -238,7 +177,7 @@ router.get('/search', async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/search' GET request: ", errors.array());
+            logger.error("Validation error(s) in the '/search' GET request");
 
             return res.status(400).json({error: errors.array()});
         }
@@ -247,16 +186,18 @@ router.get('/search', async (req, res, next) => {
 
         logger.info("Server connected to 'CO2DataDB' database");
 
-        let startDate = req.query.startDate;
-        let endDate = req.query.endDate;
+        let startDate = req.query.startDate ? req.query.startDate : "";
+        let endDate = req.query.endDate ? req.query.endDate : "";
 
         if (!startDate && !endDate) {
-            startDate = getUTC(new Date())[0];
-            endDate = getUTC(new Date())[0];
+            startDate = getUTC((new Date()))[0];
+            endDate = getUTC((new Date()))[0];
         } else if (!startDate || !endDate) {
             startDate = startDate || endDate;
             endDate = endDate || startDate;
         }
+
+        logger.info(`User provided date range: startDate=${startDate}, endDate=${endDate}`);
 
         if ((startDate && endDate) && (startDate > endDate)) {
             logger.error("User did not provide valid data range (/search GET request)");
@@ -280,14 +221,6 @@ router.get('/search', async (req, res, next) => {
                     $lte: endDate,
                 }
             }).sort({utcDate: -1}).toArray();
-
-            if (startDate === endDate) {
-                logger.info(`Data of the date ${startDate} successfully retrieved`);
-            } else {
-                logger.info(
-                    `Data between the dates ${startDate} and ${endDate} successfully retrieved`
-                );
-            }
         } else {
             findUserCO2Data = await co2Data
             .find({email: userEmail})
@@ -333,7 +266,7 @@ router.get('/leaderboard/search', async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/leaderboard/search' GET request: ", errors.array());
+            logger.error("Validation error(s) in the '/leaderboard/search' GET request");
 
             return res.status(400).json({error: errors.array()});
         }
@@ -431,7 +364,7 @@ router.get("/averageCO2/search", async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/averageCO2/search' GET request: ", errors.array());
+            logger.error("Validation error(s) in the '/averageCO2/search' GET request");
 
             return res.status(400).json({error: errors.array()});
         }
@@ -540,7 +473,7 @@ router.get("/totalCO2", async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/averageCO2/search' GET request: ", errors.array());
+            logger.error("Validation error(s) in the '/averageCO2/search' GET request");
 
             return res.status(400).json({error: errors.array()});
         }

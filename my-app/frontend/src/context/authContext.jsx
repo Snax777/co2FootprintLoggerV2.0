@@ -1,4 +1,3 @@
-// src/context/authContext.js
 import { 
   createContext, 
   useState, 
@@ -12,9 +11,9 @@ const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState('User');
   const [email, setEmail] = useState('');
-  const [authToken, setAuthToken] = useState(''); // ADD THIS LINE - missing authToken state
+  const [authToken, setAuthToken] = useState(''); 
   const [authLoading, setAuthLoading] = useState(true);
 
   const checkAuthStatus = useCallback(() => {
@@ -29,7 +28,7 @@ export const AuthProvider = ({ children }) => {
       setIsLoggedIn(false);
       setUsername('');
       setEmail('');
-      setAuthToken(''); // ADD THIS - clear authToken state
+      setAuthToken(''); 
       return false;
     }
 
@@ -38,13 +37,13 @@ export const AuthProvider = ({ children }) => {
       setIsLoggedIn(false);
       setUsername('');
       setEmail('');
-      setAuthToken(''); // ADD THIS - clear authToken state
+      setAuthToken(''); 
       return false;
     }
 
     setUsername(authUsername);
     setEmail(authEmail);
-    setAuthToken(authToken); // ADD THIS - set authToken state
+    setAuthToken(authToken); 
     setIsLoggedIn(true);
     return true;
   }, []);
@@ -63,15 +62,15 @@ export const AuthProvider = ({ children }) => {
     setIsLoggedIn(true);
     setUsername(username);
     setEmail(email);
-    setAuthToken(token); // ADD THIS - set authToken state
+    setAuthToken(token); 
   }, []);
 
   const clearAuthSession = useCallback(() => {
-    sessionStorage.clear();
     setIsLoggedIn(false);
     setUsername('');
     setEmail('');
-    setAuthToken(''); // ADD THIS - clear authToken state
+    setAuthToken(''); 
+    sessionStorage.clear();
   }, []);
 
   const value = useMemo(
@@ -82,12 +81,12 @@ export const AuthProvider = ({ children }) => {
       setUsername,
       email,
       setEmail,
-      authToken, // ADD THIS - export authToken
+      authToken, 
       authLoading,
       updateAuthStatus,
       clearAuthSession,
     }),
-    [isLoggedIn, username, email, authToken, authLoading, updateAuthStatus, clearAuthSession] // ADD authToken to dependencies
+    [isLoggedIn, username, email, authToken, authLoading, updateAuthStatus, clearAuthSession] 
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

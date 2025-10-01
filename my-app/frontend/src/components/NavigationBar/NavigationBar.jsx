@@ -14,8 +14,8 @@ const NavigationBar = () => {
     const location = useLocation();
 
     const handleLogout = useCallback(() => {
-        clearAuthSession();
         navigate("/app/login");
+        clearAuthSession();
     }, [clearAuthSession, navigate]);
 
     const handleLogin = useCallback(() => {
@@ -59,7 +59,6 @@ const NavigationBar = () => {
 
     return (
         <nav className="bg-green-800 flex justify-between items-center p-4 gap-6 shadow-lg">
-            {/* Logo/Brand */}
             <div className="font-bold text-white text-2xl md:text-3xl whitespace-nowrap">
                 <Link 
                     to={isLoggedIn ? "/app" : "/"} 

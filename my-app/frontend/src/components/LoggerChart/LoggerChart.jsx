@@ -370,11 +370,11 @@ const LoggerChart = () => {
         <div className="min-h-screen bg-gradient-to-br from-green-500/5 to-blue-500/5 py-8 px-4">
             <div className="max-w-7xl mx-auto">
                 {/* Header */}
-                <div className="text-center mb-8">
-                    <h1 className="text-4xl font-bold text-gray-800 mb-4">
+                <div className="text-center text-white mb-8">
+                    <h1 className="text-4xl font-bold mb-4">
                         CO<sub>2</sub> Emissions Analytics
                     </h1>
-                    <p className="text-gray-600 text-lg">
+                    <p className="text-lg">
                         Visualize your carbon footprint across different categories and time periods
                     </p>
                 </div>

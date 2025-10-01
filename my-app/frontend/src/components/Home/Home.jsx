@@ -44,7 +44,6 @@ const Home = () => {
     }
   }), [authToken]);
 
-  // Updated flattenedActivities with for loops
   const flattenedActivities = useMemo(() => {
     try {
       if (!co2Data || typeof co2Data !== 'object') {
@@ -60,7 +59,6 @@ const Home = () => {
         const categoryActivities = co2Data[category];
         
         if (!Array.isArray(categoryActivities)) {
-          console.warn(`Activities for category ${category} is not an array:`, categoryActivities);
           continue;
         }
 
@@ -68,7 +66,6 @@ const Home = () => {
           const activityObj = categoryActivities[i];
           
           if (!activityObj || typeof activityObj !== 'object') {
-            console.warn(`Invalid activity object in category ${category}:`, activityObj);
             continue;
           }
 
@@ -84,8 +81,7 @@ const Home = () => {
       }
 
       return result;
-    } catch (err) {
-      console.error('Error flattening activities:', err);
+    } catch (error) {
       return [];
     }
   }, []);
@@ -102,26 +98,22 @@ const Home = () => {
       const baseURL = import.meta.env.VITE_BACKEND_URL;
       const searchEndpoint = import.meta.env.VITE_SEARCH_DATA;
 
-      const response = await axios.get(
+      const { data } = await axios.get(
         `${baseURL}${searchEndpoint}?startDate=${today}&endDate=${today}`,
         apiConfig
       );
 
-      if (response.status === 200 && response.data?.data) {
-        setTodaysData(response.data.data);
-        return response.data.data;
+      if (data?.data) {
+        setTodaysData(data.data);
+        return data.data;
       } else {
         setTodaysData([]);
         return [];
       }
     } catch (error) {
-      console.error('Error fetching today\'s CO2 data:', error);
-      
       if (error.response?.status === 401) {
         clearAuthSession();
         handleToast('Session expired. Please log in again.', 'error');
-      } else {
-        handleToast('Failed to fetch today\'s data', 'error');
       }
       
       setTodaysData([]);
@@ -146,14 +138,14 @@ const Home = () => {
 
       if (response.status === 200 && response.data?.data && response.data.data.length > 0) {
         const userData = response.data.data;
-        
+
         let current = 0;
         let highest = 0;
         
         userData.forEach(entry => {
-          if (entry.loggingStreak) {
-            current = Math.max(current, entry.loggingStreak);
-            highest = Math.max(highest, entry.loggingStreak);
+          if (entry.currentStreak) {
+            current = Math.max(current, entry.currentStreak);
+            highest = Math.max(highest, entry.highestStreak);
           }
         });
 
@@ -169,13 +161,9 @@ const Home = () => {
         setHighestStreak(0);
       }
     } catch (error) {
-      console.error('Error fetching streak data:', error);
-      
       if (error.response?.status === 401) {
         clearAuthSession();
         handleToast('Session expired. Please log in again.', 'error');
-      } else {
-        handleToast('Failed to fetch streak data', 'error');
       }
       
       setCurrentStreak(0);
@@ -202,13 +190,10 @@ const Home = () => {
         setGlobalAvgCO2(0);
       }
     } catch (error) {
-      console.error('Error fetching global average CO2:', error);
-      
       if (error.response?.status === 401) {
         clearAuthSession();
+        console.log("'Session expired. Please log in again.'");
         handleToast('Session expired. Please log in again.', 'error');
-      } else {
-        handleToast('Failed to fetch average CO2', 'error');
       }
       
       setGlobalAvgCO2(0);
@@ -231,7 +216,7 @@ const Home = () => {
       if (entry.co2Data && Array.isArray(entry.co2Data)) {
         entry.co2Data.forEach((item) => {
           if (item && item.category) {
-            categoryTotals[item.category] = (categoryTotals[item.category] || 0) + (item.co2Value || 0);
+            categoryTotals[item.category] = (categoryTotals[item.category] || 0) + item.co2Value;
           }
         });
       }
@@ -258,6 +243,7 @@ const Home = () => {
         `${import.meta.env.VITE_BACKEND_URL}${import.meta.env.VITE_GET_GOALS_DATA}`,
         apiConfig
       );
+      
 
       if (response.status === 200 && response.data?.data) {
         setWeeklyGoals(response.data.data.userGoals || response.data.data || []);
@@ -267,13 +253,10 @@ const Home = () => {
         setNoGoalsError(response.data?.message || 'No goals found for this week.');
       }
     } catch (error) {
-      console.error('Error fetching goals:', error);
-      
       if (error.response?.status === 401) {
         clearAuthSession();
+        console.log("'Session expired. Please log in again.'");
         handleToast('Session expired. Please log in again.', 'error');
-      } else {
-        setNoGoalsError('Error fetching goals. Please try again later.');
       }
       
       setWeeklyGoals([]);
@@ -300,12 +283,11 @@ const Home = () => {
         handleToast('Failed to save goals', 'error');
       }
     } catch (error) {
-      console.error('Error saving goals:', error);
-      
       if (error.response?.status === 401) {
         clearAuthSession();
         handleToast('Session expired. Please log in again.', 'error');
       } else {
+        console.log(error)
         handleToast('Failed to save goals', 'error');
       }
     }
@@ -350,7 +332,6 @@ const Home = () => {
     );
   }, []);
 
-  // Updated saveActivityData to work with new index structure
   const saveActivityData = useCallback(async () => {
     if (!authToken || !username || !email || !isLoggedIn) {
       handleToast('Please log in to save activities', 'error');
@@ -380,7 +361,7 @@ const Home = () => {
             return null;
           }
           return {
-            id: base.index, // Using index as id for backend compatibility
+            id: base.index, 
             category: base.category,
             activity: base.activity,
             co2Value: parseFloat((base.co2Value * count).toFixed(2)),
@@ -394,25 +375,12 @@ const Home = () => {
       }
 
       const total = payloadData.reduce((sum, item) => sum + item.co2Value, 0);
-
       const body = {
         username: username,
         email: email,
         co2Data: payloadData,
         totalCO2: total,
       };
-
-      // ADDED: Display the payload that's about to be sent
-      console.log('📤 Payload to be sent to backend:', JSON.stringify(body, null, 2));
-      console.log('🔍 Payload details:', {
-        totalActivities: payloadData.length,
-        totalCO2: total,
-        activities: payloadData.map(item => ({
-          category: item.category,
-          activity: item.activity,
-          co2Value: item.co2Value
-        }))
-      });
 
       const response = await axios.post(
         `${import.meta.env.VITE_BACKEND_URL}${import.meta.env.VITE_POST_DATA}`,
@@ -435,8 +403,6 @@ const Home = () => {
         setTimeout(() => navigate('/app/loggerChart'), 1500);
       }
     } catch (error) {
-      console.error('Error saving activities:', error);
-      
       if (error.response?.status === 401) {
         clearAuthSession();
         handleToast('Session expired. Please log in again.', 'error');
@@ -496,7 +462,6 @@ const Home = () => {
           }),
         ]);
       } catch (error) {
-        console.error('Error initializing data:', error);
         handleToast('Failed to load dashboard data', 'error');
       } finally {
         setLoading(false);
@@ -515,10 +480,6 @@ const Home = () => {
     updateDashboard, 
     handleToast
   ]);
-
-  useEffect(() => {
-    console.log('Auth state:', { isLoggedIn, authLoading, authToken: !!authToken, username });
-  }, [isLoggedIn, authLoading, authToken, username]);
 
   useEffect(() => {
     if (!authLoading && !isLoggedIn) {
@@ -559,11 +520,11 @@ const Home = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 py-8 px-4">
+    <div className="min-h-screen bg-gray-600/30 py-8 px-4">
       <div className="max-w-7xl mx-auto">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">Welcome back, {username || 'User'}!</h1>
-          <p className="text-gray-600 text-lg">Track and reduce your carbon footprint</p>
+        <div className="text-center text-white mb-8">
+          <h1 className="text-4xl font-bold mb-2">Welcome!</h1>
+          <p className="text-lg">Track and reduce your carbon footprint</p>
         </div>
 
         <div className="grid lg:grid-cols-2 gap-8">
@@ -706,11 +667,11 @@ const Home = () => {
               ) : (
                 <div className="space-y-4">
                   {activityRows.map((row) => (
-                    <div key={row.id} className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors">
+                    <div key={row.id} className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors overflow-hidden">
                       <select
                         value={row.selectedId ?? ''}
                         onChange={(e) => updateActivityRow(row.id, e.target.value)}
-                        className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent max-w-[calc(100%-3rem)] overflow-hidden text-ellipsis whitespace-nowrap"
                       >
                         <option value="">Select an activity...</option>
                         {flattenedActivities.map((opt) => (
@@ -736,7 +697,7 @@ const Home = () => {
               )}
 
               {activityRows.length > 0 && (
-                <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
+                <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-200 overflow-hidden">
                   <p className="text-blue-800 text-sm flex items-center gap-2">
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
@@ -748,22 +709,22 @@ const Home = () => {
             </section>
           </div>
         </div>
-      </div>
 
-      {toast && (
-        <div
-          className={`fixed bottom-6 right-6 px-6 py-4 rounded-xl shadow-2xl text-white font-semibold z-50 transition-all duration-300 animate-slide-in ${
-            toast.type === 'success' 
-              ? 'bg-green-500 border border-green-400' 
-              : 'bg-red-500 border border-red-400'
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <div className={`w-3 h-3 rounded-full ${toast.type === 'success' ? 'bg-green-200' : 'bg-red-200'}`}></div>
-            <span>{toast.message}</span>
-          </div>
-        </div>
-      )}
+        {toast && (
+            <div
+                className={`fixed bottom-6 right-6 px-6 py-4 rounded-xl shadow-2xl text-white font-semibold z-50 transition-all duration-300 animate-slide-in ${
+                    toast.type === 'success' 
+                        ? 'bg-green-500 border border-green-400' 
+                        : 'bg-red-500 border border-red-400'
+                }`}
+            >
+                <div className="flex items-center gap-3">
+                    <div className={`w-3 h-3 rounded-full ${toast.type === 'success' ? 'bg-green-200' : 'bg-red-200'}`}></div>
+                    <span>{toast.message}</span>
+                </div>
+            </div>
+        )}
+      </div>  
     </div>
   );
 };

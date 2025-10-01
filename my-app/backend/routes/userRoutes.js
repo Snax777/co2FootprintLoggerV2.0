@@ -22,8 +22,6 @@ router.post('/register', async (req, res, next) => {
 
         if (!errors.isEmpty()) {
             logger.error("Validation error(s) in the '/register' POST request: ", errors.array());
-            console.error("Validation error(s) in the '/register' POST request: ", errors.array());
-
             return res.status(400).json({error: errors.array()});
         }
 
@@ -52,7 +50,6 @@ router.post('/register', async (req, res, next) => {
 
         if (existingUser) {
             logger.error(`User with email ${email} already exists.`);
-            console.error(`User with email ${email} already exists.`);
             res.status(404).json(
                 {message: `User with email ${email} already exists.`}
             );
@@ -60,7 +57,10 @@ router.post('/register', async (req, res, next) => {
         
         const newUser = await collection.insertOne(data);
         const payload = {
-            user: {id: newUser.insertedId},
+            user: {
+                id: newUser.insertedId, 
+                email: email,
+            },
         };
         const authtoken = jwt.sign(payload, process.env.JWT_SECRET, {
             expiresIn: "1h"
@@ -86,7 +86,7 @@ router.post('/login', async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/login' POST request: ", errors.array());
+            logger.error("Validation error(s) in the '/login' POST request");
 
             return res.status(400).json({error: errors.array()});
         }
@@ -122,12 +122,13 @@ router.post('/login', async (req, res, next) => {
 
             const updateLoginInDate = await collection.findOneAndUpdate(
                 {email: req.body.email},
-                {$set: {loggedInAt: date}},
+                {$set: {loggedInAt: date}}, 
+                {returnDocument: 'after'},
             );
             const payload = {
                 user: {
-                    id: updateLoginInDate._id.toString(), 
-                    email: req.body.email,
+                    id: existingUser._id.toString(), 
+                    email: existingUser.email,
                 },
             };
             const authtoken = jwt.sign(payload, process.env.JWT_SECRET, {
@@ -155,7 +156,7 @@ router.put('/update', async (req, res, next) => {
         const errors = validationResult(req);
 
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/update' PUT request: ", errors.array());
+            logger.error("Validation error(s) in the '/update' PUT request");
 
             return res.status(400).json({error: errors.array()});
         }
@@ -227,7 +228,7 @@ router.delete('/delete', async (req, res, next) => {
         const errors = validationResult(req);
         
         if (!errors.isEmpty()) {
-            logger.error("Validation error(s) in the '/delete' DELETE request: ", errors.array());
+            logger.error("Validation error(s) in the '/delete' DELETE request");
         
             return res.status(400).json({error: errors.array()});
         }
@@ -302,7 +303,7 @@ router.delete('/delete', async (req, res, next) => {
             message: "Deletion successful",
             deletionsSuccessful: {
                 data: {
-                    performed: shouldDeleteData,
+                    performed: dataDeleted,
                     recordsDeleted: deleteUserData?.deletedCount || 0,
                 },
                 user: {
@@ -310,7 +311,7 @@ router.delete('/delete', async (req, res, next) => {
                     accountDeleted: userDeleted
                 }, 
                 goals: {
-                    performed: shouldDeleteData,
+                    performed: userGoalsDeleted,
                     goalsDeleted: deleteUserGoals?.deletedCount || 0
                 }
             }
