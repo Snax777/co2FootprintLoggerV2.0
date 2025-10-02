@@ -16,6 +16,24 @@ config();
 
 const currentDate = new Date();
 
+const sendUserNotification = (req, userId, type, data) => {
+  try {
+    const broadcastToUser = req.app.get('broadcastToUser');
+    if (broadcastToUser && userId) {
+      broadcastToUser(userId, {
+        type: type,
+        payload: {
+          ...data,
+          timestamp: new Date().toISOString()
+        }
+      });
+      logger.info(`WebSocket notification sent to user ${userId}: ${type}`);
+    }
+  } catch (error) {
+    logger.error('Failed to send WebSocket notification:', error.message);
+  }
+};
+
 router.post('/register', async (req, res, next) => {
     try {
         const errors = validationResult(req);
@@ -26,7 +44,6 @@ router.post('/register', async (req, res, next) => {
         }
 
         const db = await connectToUserDB();
-
         logger.info("Server connected to 'UserDB' database");
 
         const collection = db.collection("users");
@@ -50,15 +67,16 @@ router.post('/register', async (req, res, next) => {
 
         if (existingUser) {
             logger.error(`User with email ${email} already exists.`);
-            res.status(404).json(
-                {message: `User with email ${email} already exists.`}
-            );
+            return res.status(409).json({ 
+                message: `User with email ${email} already exists.`
+            });
         }
         
         const newUser = await collection.insertOne(data);
+        const userId = newUser.insertedId.toString();
         const payload = {
             user: {
-                id: newUser.insertedId, 
+                id: userId, 
                 email: email,
             },
         };
@@ -67,11 +85,19 @@ router.post('/register', async (req, res, next) => {
         });
 
         logger.info(`User with email ${email} registered successfully`);
-        return res.status(200).json({
+        
+        sendUserNotification(req, userId, 'welcome', {
+            message: `Welcome to the CO2 tracking app, ${name}!`,
+            username: username,
+            email: email
+        });
+
+        return res.status(201).json({ 
             message: `User with email ${email} registered successfully`,
             authtoken,
             username,
             email,
+            userId: userId,
             expiresIn: 3600000,
             expiresAt: Date.now() + 3600000
         });
@@ -87,12 +113,10 @@ router.post('/login', async (req, res, next) => {
 
         if (!errors.isEmpty()) {
             logger.error("Validation error(s) in the '/login' POST request");
-
             return res.status(400).json({error: errors.array()});
         }
 
         const db = await connectToUserDB();
-
         logger.info("Server connected to 'UserDB' database");
 
         const collection = db.collection("users");
@@ -101,11 +125,7 @@ router.post('/login', async (req, res, next) => {
         const existingUser = await collection.findOne({email: req.body.email});
 
         if (!existingUser) {
-            logger.error(
-                `User with email ${req.body.email} does not exist`
-            );
-            console.error(`User with email ${req.body.email} does not exist`);
-
+            logger.error(`User with email ${req.body.email} does not exist`);
             return res.status(404).json({
                 message: `User with email ${req.body.email} does not exist`,
             });
@@ -114,8 +134,7 @@ router.post('/login', async (req, res, next) => {
 
             if (!result) {
                 logger.error("Incorrect password.");
-
-                return res.status(404).json({
+                return res.status(401).json({ 
                     message: "Incorrect password.",
                 });
             }
@@ -125,9 +144,10 @@ router.post('/login', async (req, res, next) => {
                 {$set: {loggedInAt: date}}, 
                 {returnDocument: 'after'},
             );
+            const userId = existingUser._id.toString();
             const payload = {
                 user: {
-                    id: existingUser._id.toString(), 
+                    id: userId, 
                     email: existingUser.email,
                 },
             };
@@ -136,11 +156,19 @@ router.post('/login', async (req, res, next) => {
             });
 
             logger.info(`User ${existingUser.username} logged in successfully`);
+            
+            sendUserNotification(req, userId, 'login-success', {
+                message: `Welcome back, ${existingUser.username}!`,
+                loginTime: date,
+                previousLogin: existingUser.loggedInAt
+            });
+
             return res.status(200).json({
                 message: `User ${existingUser.username} logged in successfully`,
                 username: existingUser.username, 
                 email: req.body.email,
                 authtoken,
+                userId: userId,
                 expiresIn: 3600000,
                 expiresAt: Date.now() + 3600000
             });
@@ -157,15 +185,13 @@ router.put('/update', async (req, res, next) => {
 
         if (!errors.isEmpty()) {
             logger.error("Validation error(s) in the '/update' PUT request");
-
             return res.status(400).json({error: errors.array()});
         }
 
         const authHeader = req.header('Authorization');
 
-        if (!(authHeader || authHeader.startsWith('Bearer '))) {
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
             logger.error("Access denied. No token provided");
-
             return res.status(401).json({
                 message: "Access denied. No token provided"
             });
@@ -176,7 +202,6 @@ router.put('/update', async (req, res, next) => {
         const userId = decoded.user.id;
 
         const db = await connectToUserDB();
-
         logger.info("Server connected to 'UserDB' database");
 
         const collection = db.collection("users");
@@ -186,11 +211,9 @@ router.put('/update', async (req, res, next) => {
 
         if (!currentUser) {
             logger.error("User not found");
-
             return res.status(404).send("User not found");
         } else if (!result) {
             logger.error("User's current password does not match with given password");
-
             return res.status(400).send("User's current password does not match with given password");
         }
 
@@ -206,11 +229,18 @@ router.put('/update', async (req, res, next) => {
             {returnDocument: 'after'},
         );
         const payload = {
-            user: {id: updateUserDetails._id.toString()}, 
+            user: {id: userId}, 
         };
         const authtoken = jwt.sign(payload, process.env.JWT_SECRET);
 
         logger.info(`Password of user ${currentUser.username} changed successfully`);
+        
+        sendUserNotification(req, userId, 'password-updated', {
+            message: 'Your password has been updated successfully',
+            username: currentUser.username,
+            updateTime: date,
+            securityNote: 'If you did not make this change, please contact support immediately.'
+        });
 
         return res.status(200).json({
             message: `Password changed successfully`,
@@ -229,7 +259,6 @@ router.delete('/delete', async (req, res, next) => {
         
         if (!errors.isEmpty()) {
             logger.error("Validation error(s) in the '/delete' DELETE request");
-        
             return res.status(400).json({error: errors.array()});
         }
         
@@ -237,7 +266,6 @@ router.delete('/delete', async (req, res, next) => {
         
         if (!authHeader) {
             logger.error("Access denied. No token provided");
-        
             return res.status(401).json({
                 message: "Access denied. No token provided"
             });
@@ -250,7 +278,6 @@ router.delete('/delete', async (req, res, next) => {
         
         if (!userId || !userEmail) {
             logger.error("User not logged in or missing email");
-        
             return res.status(400).json({
                 message: "User not logged in or properly authenticated",
             });
@@ -269,7 +296,6 @@ router.delete('/delete', async (req, res, next) => {
 
         if (!currentUser) {
             logger.error(`Authenticated user ${userEmail} not found in database`);
-
             return res.status(404).json({ message: "User account not found" });
         }
 
@@ -278,6 +304,12 @@ router.delete('/delete', async (req, res, next) => {
         let deleteUserGoals = null;
 
         const shouldDeleteData = req.body.deleteData === true || req.body.deleteUser === true;
+
+        sendUserNotification(req, userId, 'account-deletion-started', {
+            message: 'Account deletion process started',
+            deleteData: shouldDeleteData,
+            deleteUser: req.body.deleteUser === true
+        });
 
         if (shouldDeleteData) {
             deleteUserData = await collection2.deleteMany({email: userEmail});
@@ -296,6 +328,24 @@ router.delete('/delete', async (req, res, next) => {
             logger.warn(`No deletions performed for ${userEmail} - both flags were false`);
             return res.status(400).json({
                 message: "No deletions performed.",
+            });
+        }
+
+        if (userDeleted) {
+            sendUserNotification(req, userId, 'account-deleted', {
+                message: 'Your account has been successfully deleted',
+                deletions: {
+                    dataRecords: deleteUserData?.deletedCount || 0,
+                    goals: deleteUserGoals?.deletedCount || 0,
+                    account: userDeleted
+                },
+                farewell: 'Thank you for using our CO2 tracking service.'
+            });
+        } else {
+            sendUserNotification(req, userId, 'data-deleted', {
+                message: 'Your CO2 data has been deleted successfully',
+                recordsDeleted: deleteUserData?.deletedCount || 0,
+                goalsDeleted: deleteUserGoals?.deletedCount || 0
             });
         }
 

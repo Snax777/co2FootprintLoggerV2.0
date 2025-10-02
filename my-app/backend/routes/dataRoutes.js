@@ -19,6 +19,43 @@ if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET has no value');
 }
 
+const sendDataNotification = (req, userId, type, data) => {
+  try {
+    const broadcastToUser = req.app.get('broadcastToUser');
+    if (broadcastToUser && userId) {
+      broadcastToUser(userId, {
+        type: type,
+        payload: {
+          ...data,
+          timestamp: new Date().toISOString()
+        }
+      });
+      logger.info(`WebSocket data notification sent to user ${userId}: ${type}`);
+    }
+  } catch (error) {
+    logger.error('Failed to send WebSocket data notification:', error.message);
+  }
+};
+
+const broadcastLeaderboardUpdate = (req, startDate, endDate) => {
+  try {
+    const broadcastToAll = req.app.get('broadcastToAll');
+    if (broadcastToAll) {
+      broadcastToAll({
+        type: 'leaderboard-updated',
+        payload: {
+          message: 'Leaderboard has been updated',
+          period: { startDate, endDate },
+          timestamp: new Date().toISOString()
+        }
+      });
+      logger.info('Broadcast leaderboard update to all connected users');
+    }
+  } catch (error) {
+    logger.error('Failed to broadcast leaderboard update:', error.message);
+  }
+};
+
 router.post('/', async (req, res, next) => { 
     try {
         const authHeader = req.header('Authorization');
@@ -122,6 +159,22 @@ router.post('/', async (req, res, next) => {
             });
 
             logger.info(`CO2 data successfully added`);
+            
+            sendDataNotification(req, userId, 'co2-data-added', {
+                message: 'New CO2 data recorded successfully',
+                dataId: addNewCO2Data.insertedId.toString(),
+                date: localDate,
+                totalCO2: totalCO2,
+                streak: {
+                    current: newCurrentStreak,
+                    highest: newHighest,
+                    isNewRecord: newCurrentStreak > previousHighest
+                },
+                entriesCount: newCO2Data.length
+            });
+
+            broadcastLeaderboardUpdate(req, utcDateAndTime[0], utcDateAndTime[0]);
+
             return res.status(201).json({
                 message: "New data added successfully",
                 id: addNewCO2Data.insertedId,
@@ -138,6 +191,16 @@ router.post('/', async (req, res, next) => {
             );
 
             logger.info(`New CO2 data of user ${existingCO2Data.username} successfully appended`);
+            
+            sendDataNotification(req, userId, 'co2-data-updated', {
+                message: 'CO2 data updated successfully',
+                dataId: updateCO2Data._id.toString(),
+                date: localDate,
+                addedEntries: newCO2Data.length,
+                newTotalCO2: updateCO2Data.totalCO2,
+                action: 'appended'
+            });
+
             return res.status(200).json({
                 message: "New data appended successfully",
                 id: updateCO2Data.insertedId,
@@ -155,7 +218,6 @@ router.get('/search', async (req, res, next) => {
 
         if (!authHeader) {
             logger.error("Access denied. No token provided (/search GET request)");
-
             return res.status(401).json({
                 message: "Access denied. No token provided"
             });
@@ -168,7 +230,6 @@ router.get('/search', async (req, res, next) => {
 
         if (!userId || !userEmail) {
             logger.error("User not logged in or missing email");
-
             return res.status(400).json({
                 message: "User not logged in or properly authenticated",
             });
@@ -178,7 +239,6 @@ router.get('/search', async (req, res, next) => {
 
         if (!errors.isEmpty()) {
             logger.error("Validation error(s) in the '/search' GET request");
-
             return res.status(400).json({error: errors.array()});
         }
 
@@ -201,7 +261,6 @@ router.get('/search', async (req, res, next) => {
 
         if ((startDate && endDate) && (startDate > endDate)) {
             logger.error("User did not provide valid data range (/search GET request)");
-
             return res.status(400).json({
                 message: "Provide a valid date range (startDate <= endDate)",
             });
@@ -229,6 +288,13 @@ router.get('/search', async (req, res, next) => {
             .toArray();
         }
 
+        sendDataNotification(req, userId, 'data-requested', {
+            message: 'CO2 data retrieved successfully',
+            dateRange: { startDate, endDate },
+            recordsReturned: findUserCO2Data.length,
+            requestType: 'search'
+        });
+
         return res.status(200).json({
             data: findUserCO2Data,
         });
@@ -244,7 +310,6 @@ router.get('/leaderboard/search', async (req, res, next) => {
 
         if (!authHeader) {
             logger.error("Access denied. No token provided (/leaderboard/search GET request)");
-
             return res.status(401).json({
                 message: "Access denied. No token provided"
             });
@@ -257,7 +322,6 @@ router.get('/leaderboard/search', async (req, res, next) => {
 
         if (!userId || !userEmail) {
             logger.error("User not logged in or missing email");
-
             return res.status(400).json({
                 message: "User not logged in or properly authenticated",
             });
@@ -267,7 +331,6 @@ router.get('/leaderboard/search', async (req, res, next) => {
 
         if (!errors.isEmpty()) {
             logger.error("Validation error(s) in the '/leaderboard/search' GET request");
-
             return res.status(400).json({error: errors.array()});
         }
 
@@ -281,7 +344,6 @@ router.get('/leaderboard/search', async (req, res, next) => {
 
         if ((!startDate || !endDate) || (startDate > endDate)) {
             logger.error("User did not provide valid data range (/leaderboard/search GET request)");
-
             return res.status(400).json({
                 message: "Provide a valid date range (startDate <= endDate)",
             });
@@ -326,6 +388,14 @@ router.get('/leaderboard/search', async (req, res, next) => {
         const aggregatedData = await co2Data.aggregate(aggregationPipeline).toArray();
 
         logger.info("Leaderboard data successfully retrieved");
+        
+        sendDataNotification(req, userId, 'leaderboard-viewed', {
+            message: 'Leaderboard data retrieved',
+            period: { startDate, endDate },
+            userCount: aggregatedData.length,
+            userRank: aggregatedData.findIndex(entry => entry.email === userEmail) + 1
+        });
+
         return res.status(200).json({
             message: "Aggregation process complete",
             data: aggregatedData,
@@ -342,7 +412,6 @@ router.get("/averageCO2/search", async (req, res, next) => {
 
         if (!authHeader) {
             logger.error("Access denied. No token provided (/averageCO2/search GET request)");
-
             return res.status(401).json({
                 message: "Access denied. No token provided"
             });
@@ -355,7 +424,6 @@ router.get("/averageCO2/search", async (req, res, next) => {
 
         if (!userId || !userEmail) {
             logger.error("User not logged in or missing email");
-
             return res.status(400).json({
                 message: "User not logged in or properly authenticated",
             });
@@ -365,7 +433,6 @@ router.get("/averageCO2/search", async (req, res, next) => {
 
         if (!errors.isEmpty()) {
             logger.error("Validation error(s) in the '/averageCO2/search' GET request");
-
             return res.status(400).json({error: errors.array()});
         }
 
@@ -384,7 +451,6 @@ router.get("/averageCO2/search", async (req, res, next) => {
 
         if (startDate > endDate) {
             logger.error("User did not provide valid data range (/averageCO2/search GET request)");
-
             return res.status(400).json({
                 message: "Provide a valid date range (startDate <= endDate)",
             });
@@ -434,6 +500,15 @@ router.get("/averageCO2/search", async (req, res, next) => {
             : 0;
 
         logger.info("Average CO2 data successfully retrieved");
+        
+        sendDataNotification(req, userId, 'average-co2-viewed', {
+            message: 'Average CO2 data retrieved',
+            period: { startDate, endDate },
+            averageCO2: responseData.averageCO2,
+            activeUsers: responseData.activeUsersCount,
+            totalRecords: responseData.totalRecords
+        });
+
         return res.status(200).json({
             message: "Aggregation process complete",
             data: [responseData], 
@@ -451,7 +526,6 @@ router.get("/totalCO2", async (req, res, next) => {
 
         if (!authHeader) {
             console.error("Access denied. No token provided (/totalCO2 GET request)");
-
             return res.status(401).json({
                 message: "Access denied. No token provided"
             });
@@ -464,7 +538,6 @@ router.get("/totalCO2", async (req, res, next) => {
 
         if (!userId || !userEmail) {
             logger.error("User not logged in or missing email");
-
             return res.status(400).json({
                 message: "User not logged in or properly authenticated",
             });
@@ -474,7 +547,6 @@ router.get("/totalCO2", async (req, res, next) => {
 
         if (!errors.isEmpty()) {
             logger.error("Validation error(s) in the '/averageCO2/search' GET request");
-
             return res.status(400).json({error: errors.array()});
         }
 
@@ -489,7 +561,6 @@ router.get("/totalCO2", async (req, res, next) => {
 
         if ((!startDate || !endDate) || (startDate > endDate)) {
             logger.error("User did not provide valid data range");
-
             return res.status(400).json({
                 message: "Provide a valid date range (startDate <= endDate)",
             });
@@ -520,6 +591,14 @@ router.get("/totalCO2", async (req, res, next) => {
         const aggregatedData = await co2Data.aggregate(aggregationPipeline).toArray();
 
         logger.info("Total CO2 data successfully retrieved");
+        
+        sendDataNotification(req, userId, 'total-co2-viewed', {
+            message: 'Total CO2 data retrieved',
+            period: { startDate, endDate },
+            totalCO2: aggregatedData[0]?.totalCO2 || 0,
+            recordCount: aggregatedData[0]?.totalRecords || 0
+        });
+
         return res.status(200).json({
             message: "Aggregation process complete",
             data: aggregatedData,
@@ -531,4 +610,4 @@ router.get("/totalCO2", async (req, res, next) => {
     }
 });
 
-export {router as dataRoutes}; 
+export {router as dataRoutes};

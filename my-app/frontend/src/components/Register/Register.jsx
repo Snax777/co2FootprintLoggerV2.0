@@ -7,7 +7,8 @@ const Register = () => {
     const { 
         updateAuthStatus, 
         authLoading,
-        isLoggedIn 
+        isLoggedIn,
+        webSocketConnected 
     } = useAppContext();
     
     const navigate = useNavigate();
@@ -23,6 +24,7 @@ const Register = () => {
     const [errorMessage, setErrorMessage] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [passwordStrength, setPasswordStrength] = useState(0);
+    const [registrationSuccess, setRegistrationSuccess] = useState(false);
 
     const backendUrl = import.meta.env.VITE_BACKEND_URL;
     const registerEndpoint = import.meta.env.VITE_REGISTER_ENDPOINT;
@@ -50,7 +52,7 @@ const Register = () => {
         };
 
         calculateStrength();
-    }, [formData.password]);
+    }, [formData]);
 
     const handleInputChange = useCallback((field) => (event) => {
         setFormData(prev => ({
@@ -104,6 +106,7 @@ const Register = () => {
 
         setIsSubmitting(true);
         setErrorMessage("");
+        setRegistrationSuccess(false);
 
         try {
             const { data } = await axios.post(
@@ -118,6 +121,7 @@ const Register = () => {
             );
 
             if (data.authtoken && data.username && data.email && data.expiresAt) {
+                // ✅ UPDATED: Call updateAuthStatus which now handles WebSocket connection
                 updateAuthStatus(
                     data.authtoken,
                     data.username,
@@ -125,16 +129,22 @@ const Register = () => {
                     data.expiresAt.toString()
                 );
                 
-                setFormData({
-                    name: "",
-                    surname: "",
-                    username: "",
-                    email: "",
-                    password: ""
-                });
-                setConfirmPassword("");
+                setRegistrationSuccess(true);
                 
-                navigate("/app");
+                // ✅ NEW: Show success message before navigation
+                setTimeout(() => {
+                    setFormData({
+                        name: "",
+                        surname: "",
+                        username: "",
+                        email: "",
+                        password: ""
+                    });
+                    setConfirmPassword("");
+                    
+                    navigate("/app");
+                }, 1500);
+                
             } else if (data.error) {
                 setErrorMessage(data.error);
             } else {
@@ -204,6 +214,27 @@ const Register = () => {
                                 </svg>
                             </div>
                             <p className="text-red-700 text-sm">{errorMessage}</p>
+                        </div>
+                    </div>
+                )}
+
+                {registrationSuccess && (
+                    <div className="bg-green-50 border border-green-200 rounded-2xl p-4 mb-6 animate-fade-in">
+                        <div className="flex items-center">
+                            <div className="text-green-500 mr-3">
+                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                            </div>
+                            <div>
+                                <p className="text-green-700 text-sm font-medium">Account created successfully!</p>
+                                <p className="text-green-600 text-xs mt-1">
+                                    {webSocketConnected 
+                                        ? "Real-time features activated. Redirecting..." 
+                                        : "Setting up your account. Redirecting..."
+                                    }
+                                </p>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -355,9 +386,9 @@ const Register = () => {
 
                         <button
                             type="submit"
-                            disabled={isSubmitting}
+                            disabled={isSubmitting || registrationSuccess}
                             className={`w-full py-3 px-4 rounded-lg font-semibold text-white transition-all duration-200 ${
-                                isSubmitting
+                                isSubmitting || registrationSuccess
                                     ? "bg-gray-400 cursor-not-allowed"
                                     : "bg-green-500 hover:bg-green-600 active:bg-green-700 shadow-lg hover:shadow-xl"
                             }`}
@@ -366,6 +397,13 @@ const Register = () => {
                                 <div className="flex items-center justify-center">
                                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
                                     Creating Account...
+                                </div>
+                            ) : registrationSuccess ? (
+                                <div className="flex items-center justify-center">
+                                    <svg className="w-5 h-5 text-white mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                    </svg>
+                                    Success! Redirecting...
                                 </div>
                             ) : (
                                 "Create Account"
@@ -383,6 +421,31 @@ const Register = () => {
                                 Sign in here
                             </Link>
                         </p>
+                    </div>
+                </div>
+
+                {/* ✅ NEW: Real-time features preview */}
+                <div className="mt-6 bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-green-200">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">
+                        🚀 Real-time Features Included
+                    </h3>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div className="flex items-center text-gray-600">
+                            <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                            Live CO₂ updates
+                        </div>
+                        <div className="flex items-center text-gray-600">
+                            <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                            Goal progress tracking
+                        </div>
+                        <div className="flex items-center text-gray-600">
+                            <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                            Instant notifications
+                        </div>
+                        <div className="flex items-center text-gray-600">
+                            <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                            Live leaderboard
+                        </div>
                     </div>
                 </div>
 

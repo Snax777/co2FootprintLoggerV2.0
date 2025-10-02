@@ -1,9 +1,10 @@
 import co2Data from "../../../../util/data/co2-value.json";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { getUTC } from "../../../../util/dateTimeToUTCConverter";
 import { useAppContext } from "../../context/authContext";
+import { websocketClient } from "../../services/websocketClient"; 
 import { 
     Chart, 
     BarElement, 
@@ -28,10 +29,12 @@ const LoggerChart = () => {
     const { 
         isLoggedIn, 
         authLoading, 
-        clearAuthSession 
+        clearAuthSession,
+        webSocketConnected 
     } = useAppContext();
     
     const navigate = useNavigate();
+    const chartRef = useRef(null); 
     
     const currentDate = new Date();
     const todayUTC = getUTC(currentDate)[0];
@@ -43,11 +46,11 @@ const LoggerChart = () => {
     const [formattedData, setFormattedData] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [toast, setToast] = useState(null);
+    const [realTimeUpdates, setRealTimeUpdates] = useState([]); 
+    const [autoRefresh, setAutoRefresh] = useState(true); 
 
-    // Get auth token from sessionStorage
     const authToken = sessionStorage.getItem("auth-token");
 
-    // Memoized API configuration
     const apiConfig = useMemo(() => ({
         headers: { 
             Authorization: `Bearer ${authToken}`,
@@ -61,6 +64,114 @@ const LoggerChart = () => {
         setTimeout(() => setToast(null), 3000);
     }, []);
 
+    const setupWebSocketHandlers = useCallback(() => {
+        if (!websocketClient || !webSocketConnected) return;
+
+        websocketClient.on('co2-data-added', (data) => {
+            console.log('New CO2 data received via WebSocket:', data);
+            
+            setRealTimeUpdates(prev => [...prev, {
+                id: Date.now(),
+                type: 'new-data',
+                message: `New data recorded: ${data.totalCO2}kg CO₂`,
+                timestamp: new Date().toLocaleTimeString(),
+                data: data
+            }]);
+
+            if (autoRefresh && isDateInRange(data.date, startDate, endDate)) {
+                handleToast("New data available! Updating chart...", "success");
+                setTimeout(() => {
+                    fetchAndRenderChart();
+                }, 1000); 
+            } else if (autoRefresh) {
+                handleToast("New data recorded (outside current date range)", "info");
+            }
+        });
+
+        websocketClient.on('co2-data-updated', (data) => {
+            setRealTimeUpdates(prev => [...prev, {
+                id: Date.now(),
+                type: 'update-data',
+                message: `Data updated: ${data.addedEntries} new entries`,
+                timestamp: new Date().toLocaleTimeString(),
+                data: data
+            }]);
+
+            if (autoRefresh) {
+                handleToast("Data updated! Refreshing chart...", "info");
+                setTimeout(() => {
+                    fetchAndRenderChart();
+                }, 500);
+            }
+        });
+
+        websocketClient.on('data-deleted', (data) => {
+            setRealTimeUpdates(prev => [...prev, {
+                id: Date.now(),
+                type: 'delete-data',
+                message: `Data deleted: ${data.recordsDeleted} records removed`,
+                timestamp: new Date().toLocaleTimeString(),
+                data: data
+            }]);
+
+            if (autoRefresh) {
+                handleToast("Data deleted! Updating chart...", "warning");
+                setTimeout(() => {
+                    fetchAndRenderChart();
+                }, 500);
+            }
+        });
+
+        // Handle connection status
+        websocketClient.on('connected', () => {
+            handleToast("Real-time chart updates activated", "success");
+        });
+
+        websocketClient.on('connection-lost', () => {
+            handleToast("Real-time updates paused", "error");
+        });
+
+    }, [autoRefresh, startDate, endDate, handleToast, webSocketConnected]);
+
+    const isDateInRange = useCallback((date, start, end) => {
+        try {
+            const checkDate = new Date(date);
+            const startDate = new Date(start);
+            const endDate = new Date(end);
+            return checkDate >= startDate && checkDate <= endDate;
+        } catch {
+            return false;
+        }
+    }, []);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setRealTimeUpdates(prev => 
+                prev.filter(update => 
+                    Date.now() - update.id < 30000 
+                )
+            );
+        }, 5000);
+
+        return () => clearInterval(interval);
+    }, []);
+
+    useEffect(() => {
+        if (isLoggedIn && webSocketConnected) {
+            setupWebSocketHandlers();
+        }
+
+        return () => {
+            if (websocketClient) {
+                websocketClient.off('co2-data-added');
+                websocketClient.off('co2-data-updated');
+                websocketClient.off('data-deleted');
+                websocketClient.off('connected');
+                websocketClient.off('connection-lost');
+            }
+        };
+    }, [isLoggedIn, webSocketConnected, setupWebSocketHandlers]);
+
     const sameDate = useMemo(() => startDate === endDate, [startDate, endDate]);
     
     const paragraphSubstring = useMemo(() => 
@@ -72,8 +183,8 @@ const LoggerChart = () => {
         const categories = Object.keys(co2Data);
         return categories.map((_, index) => {
             const hue = Math.floor((360 / categories.length) * index);
-            const saturation = 70 + Math.random() * 20; // 70-90%
-            const lightness = 50 + Math.random() * 20; // 50-70%
+            const saturation = 70 + Math.random() * 20; 
+            const lightness = 50 + Math.random() * 20; 
             return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
         });
     }, []);
@@ -196,8 +307,12 @@ const LoggerChart = () => {
                     drawBorder: false
                 }
             }
+        },
+        animation: {
+            duration: autoRefresh ? 1000 : 0,
+            easing: 'easeOutQuart'
         }
-    }), [paragraphSubstring]);
+    }), [paragraphSubstring, autoRefresh]);
 
     const getEarlyDate = useCallback((dateRange) => {
         const earlyMilliseconds = Date.now() - (dateRange * 24 * 3600000);
@@ -261,12 +376,10 @@ const LoggerChart = () => {
 
         const categoryTotals = {};
         
-        // Initialize all categories from co2Data
         Object.keys(co2Data).forEach(category => {
             categoryTotals[category] = 0;
         });
 
-        // Sum CO2 values by category
         rawData.forEach(item => {
             if (item.co2Data && Array.isArray(item.co2Data)) {
                 item.co2Data.forEach(data => {
@@ -278,7 +391,6 @@ const LoggerChart = () => {
             }
         });
 
-        // Convert to array and filter out categories with 0 values
         return Object.entries(categoryTotals)
             .map(([co2Category, co2Value]) => ({ 
                 co2Category, 
@@ -330,20 +442,30 @@ const LoggerChart = () => {
         setStartDate(earlyDate);
         setEndDate(todayUTC);
         
-        // For today and yesterday, set both dates to the same
         if (daysBack === 0 || daysBack === 1) {
             setEndDate(earlyDate);
         }
     }, [getEarlyDate, todayUTC]);
 
-    // Redirect if not logged in
+    const handleManualRefresh = useCallback(() => {
+        handleToast("Refreshing chart data...", "info");
+        fetchAndRenderChart();
+    }, [fetchAndRenderChart, handleToast]);
+
+    const toggleAutoRefresh = useCallback(() => {
+        setAutoRefresh(prev => !prev);
+        handleToast(
+            autoRefresh ? "Auto-refresh disabled" : "Auto-refresh enabled", 
+            "info"
+        );
+    }, [autoRefresh, handleToast]);
+
     useEffect(() => {
         if (!authLoading && !isLoggedIn) {
             navigate('/app/login');
         }
     }, [isLoggedIn, authLoading, navigate]);
 
-    // Auto-fetch when dates change (optional - remove if you prefer manual fetch)
     useEffect(() => {
         if (isLoggedIn && startDate && endDate && !authLoading) {
             const timer = setTimeout(() => {
@@ -354,7 +476,6 @@ const LoggerChart = () => {
         }
     }, [isLoggedIn, startDate, endDate, authLoading, fetchAndRenderChart]);
 
-    // Show loading state while checking auth
     if (authLoading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-500/10 to-blue-500/10">
@@ -369,7 +490,6 @@ const LoggerChart = () => {
     return (
         <div className="min-h-screen bg-gradient-to-br from-green-500/5 to-blue-500/5 py-8 px-4">
             <div className="max-w-7xl mx-auto">
-                {/* Header */}
                 <div className="text-center text-white mb-8">
                     <h1 className="text-4xl font-bold mb-4">
                         CO<sub>2</sub> Emissions Analytics
@@ -377,14 +497,62 @@ const LoggerChart = () => {
                     <p className="text-lg">
                         Visualize your carbon footprint across different categories and time periods
                     </p>
+                    
+                    <div className="flex justify-center items-center mt-4 space-x-4">
+                        <div className={`flex items-center px-3 py-1 rounded-full text-sm ${
+                            webSocketConnected 
+                                ? 'bg-green-500/20 text-green-400 border border-green-400/30' 
+                                : 'bg-yellow-500/20 text-yellow-400 border border-yellow-400/30'
+                        }`}>
+                            <div className={`w-2 h-2 rounded-full mr-2 ${
+                                webSocketConnected ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'
+                            }`}></div>
+                            {webSocketConnected ? 'Live Updates Active' : 'Real-time Offline'}
+                        </div>
+                        
+                        {webSocketConnected && (
+                            <div className={`flex items-center px-3 py-1 rounded-full text-sm cursor-pointer ${
+                                autoRefresh 
+                                    ? 'bg-blue-500/20 text-blue-400 border border-blue-400/30' 
+                                    : 'bg-gray-500/20 text-gray-400 border border-gray-400/30'
+                            }`} onClick={toggleAutoRefresh}>
+                                <div className={`w-2 h-2 rounded-full mr-2 ${
+                                    autoRefresh ? 'bg-blue-400 animate-pulse' : 'bg-gray-400'
+                                }`}></div>
+                                Auto-refresh: {autoRefresh ? 'ON' : 'OFF'}
+                            </div>
+                        )}
+                    </div>
                 </div>
 
-                {/* Controls Section */}
                 <div className="bg-white rounded-2xl shadow-xl p-8 mb-8">
-                    <h2 className="text-2xl font-bold text-gray-800 mb-6">Chart Controls</h2>
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-2xl font-bold text-gray-800">Chart Controls</h2>
+                        
+                        <div className="flex items-center space-x-3">
+                            {webSocketConnected && (
+                                <button
+                                    onClick={toggleAutoRefresh}
+                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                                        autoRefresh
+                                            ? 'bg-blue-100 text-blue-700 border border-blue-300'
+                                            : 'bg-gray-100 text-gray-700 border border-gray-300'
+                                    }`}
+                                >
+                                    Auto: {autoRefresh ? 'ON' : 'OFF'}
+                                </button>
+                            )}
+                            <button
+                                onClick={handleManualRefresh}
+                                disabled={isLoading}
+                                className="px-4 py-2 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition disabled:opacity-50"
+                            >
+                                {isLoading ? 'Refreshing...' : 'Refresh Now'}
+                            </button>
+                        </div>
+                    </div>
                     
                     <div className="grid md:grid-cols-2 gap-8">
-                        {/* Quick Presets */}
                         <div>
                             <label htmlFor="preset-range" className="block text-gray-700 font-semibold mb-3">
                                 Quick Date Presets:
@@ -405,7 +573,6 @@ const LoggerChart = () => {
                             </select>
                         </div>
 
-                        {/* Manual Date Selection */}
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-gray-700 font-semibold mb-3">
@@ -434,7 +601,27 @@ const LoggerChart = () => {
                         </div>
                     </div>
 
-                    {/* Action Button */}
+                    {realTimeUpdates.length > 0 && (
+                        <div className="mt-6 p-4 bg-gray-50 rounded-xl border">
+                            <h3 className="font-semibold text-gray-700 mb-3">Recent Activity</h3>
+                            <div className="space-y-2 max-h-32 overflow-y-auto">
+                                {realTimeUpdates.slice(-3).reverse().map((update) => (
+                                    <div 
+                                        key={update.id}
+                                        className={`flex justify-between items-center p-2 rounded text-sm ${
+                                            update.type === 'new-data' ? 'bg-green-50 text-green-700' :
+                                            update.type === 'update-data' ? 'bg-blue-50 text-blue-700' :
+                                            'bg-amber-50 text-amber-700'
+                                        }`}
+                                    >
+                                        <span>{update.message}</span>
+                                        <span className="text-xs text-gray-500">{update.timestamp}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     <div className="mt-6">
                         <button
                             onClick={fetchAndRenderChart}
@@ -457,7 +644,6 @@ const LoggerChart = () => {
                     </div>
                 </div>
 
-                {/* Loading State */}
                 {isLoading && (
                     <div className="bg-blue-50 border border-blue-200 rounded-2xl p-8 text-center mb-8">
                         <div className="flex items-center justify-center gap-3 text-blue-700">
@@ -467,7 +653,6 @@ const LoggerChart = () => {
                     </div>
                 )}
 
-                {/* Error Message */}
                 {errorMessage && !isLoading && (
                     <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center mb-8 animate-fade-in">
                         <div className="text-red-600 font-semibold text-lg mb-2 flex items-center justify-center gap-2">
@@ -480,7 +665,6 @@ const LoggerChart = () => {
                     </div>
                 )}
 
-                {/* Chart Display */}
                 {showChart && !isLoading && formattedData.length > 0 && (
                     <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
                         <div className="p-8">
@@ -489,10 +673,10 @@ const LoggerChart = () => {
                                     data={chartData} 
                                     options={chartOptions} 
                                     key={JSON.stringify(chartData)}
+                                    ref={chartRef}
                                 />
                             </div>
                             
-                            {/* Data Summary */}
                             <div className="mt-8 p-6 bg-gradient-to-r from-green-50 to-blue-50 rounded-xl border border-green-200">
                                 <h3 className="font-bold text-green-800 text-lg mb-4 flex items-center gap-2">
                                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -518,13 +702,18 @@ const LoggerChart = () => {
                                 </div>
                                 <div className="mt-4 text-center text-gray-600">
                                     <p>Period: <span className="font-semibold">{paragraphSubstring}</span></p>
+                                    {webSocketConnected && (
+                                        <p className="text-sm mt-1">
+                                            <span className={`inline-block w-2 h-2 rounded-full mr-1 ${autoRefresh ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></span>
+                                            Auto-refresh: {autoRefresh ? 'Active' : 'Inactive'}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                         </div>
                     </div>
                 )}
 
-                {/* Empty State */}
                 {!showChart && !isLoading && !errorMessage && isLoggedIn && (
                     <div className="bg-white rounded-2xl shadow-xl p-16 text-center">
                         <div className="text-gray-300 text-8xl mb-6">📈</div>
@@ -551,7 +740,6 @@ const LoggerChart = () => {
                     </div>
                 )}
 
-                {/* Login Prompt */}
                 {!isLoggedIn && !authLoading && (
                     <div className="bg-white rounded-2xl shadow-xl p-12 text-center">
                         <div className="text-gray-400 text-8xl mb-6">🔐</div>
@@ -571,7 +759,6 @@ const LoggerChart = () => {
                 )}
             </div>
 
-            {/* Toast Notification */}
             {toast && (
                 <div
                     className={`fixed bottom-6 right-6 px-6 py-4 rounded-xl shadow-2xl text-white font-semibold z-50 transition-all duration-300 animate-slide-in ${

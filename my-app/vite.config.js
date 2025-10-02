@@ -18,4 +18,14 @@ export default defineConfig({
   define: {
     'process.env': {},   // ✅ prevents "process is not defined"
   },
+  server: {
+    proxy: {
+      '/realtime': {
+        target: 'ws://localhost:3000',  // Proxy to backend WebSocket server
+        ws: true,                       // Enable WebSocket proxying
+        secure: false,                  // For development (non-https)
+        changeOrigin: true              // Adjust origin headers if needed
+      }
+    }
+  }
 });

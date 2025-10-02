@@ -1,9 +1,10 @@
 import co2Data from '../../../../util/data/co2-value.json';
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { getUTC } from '../../../../util/dateTimeToUTCConverter';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../../context/authContext';
+import { websocketClient } from '../../services/websocketClient'; 
 
 const Home = () => {
   const { 
@@ -12,13 +13,15 @@ const Home = () => {
     email, 
     authLoading,
     clearAuthSession,
-    authToken
+    authToken,
+    webSocketConnected
   } = useAppContext();
   
   const navigate = useNavigate();
+  const lastUpdateRef = useRef(null); 
+  
   const [loading, setLoading] = useState(true);
   const [dashboardLoading, setDashboardLoading] = useState(false);
-
   const [highestStreak, setHighestStreak] = useState(0);
   const [currentStreak, setCurrentStreak] = useState(0);
   const [globalAvgCO2, setGlobalAvgCO2] = useState(0);
@@ -31,6 +34,9 @@ const Home = () => {
   const [isPosting, setIsPosting] = useState(false);
   const [toast, setToast] = useState(null);
   const [todaysData, setTodaysData] = useState([]);
+  const [realTimeUpdates, setRealTimeUpdates] = useState([]);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   const handleToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
@@ -43,6 +49,116 @@ const Home = () => {
       'Content-Type': 'application/json'
     }
   }), [authToken]);
+
+  const setupWebSocketHandlers = useCallback(() => {
+    if (!websocketClient || !webSocketConnected) return;
+
+    websocketClient.on('co2-data-added', (data) => {
+      console.log('New CO2 data received via WebSocket:', data);
+      
+      setRealTimeUpdates(prev => [...prev, {
+        id: Date.now(),
+        type: 'new-data',
+        message: `Logged ${data.totalCO2}kg CO₂`,
+        timestamp: new Date().toLocaleTimeString(),
+        data: data
+      }]);
+
+      if (autoRefresh) {
+        handleToast("Activity logged! Updating dashboard...", "success");
+        setTimeout(() => {
+          refreshDashboard();
+        }, 1000);
+      }
+    });
+
+    websocketClient.on('goal-completed', (data) => {
+      const celebrationMessage = `🎉 ${data.message}`;
+      
+      setRealTimeUpdates(prev => [...prev, {
+        id: Date.now(),
+        type: 'goal-completed',
+        message: celebrationMessage,
+        timestamp: new Date().toLocaleTimeString(),
+        data: data
+      }]);
+
+      handleToast(celebrationMessage, "success");
+      
+      setTimeout(() => {
+        fetchWeeklyGoals();
+      }, 500);
+    });
+
+    websocketClient.on('goal-progress-updated', (data) => {
+      setRealTimeUpdates(prev => [...prev, {
+        id: Date.now(),
+        type: 'goal-progress',
+        message: `Goal progress updated!`,
+        timestamp: new Date().toLocaleTimeString(),
+        data: data
+      }]);
+
+      if (autoRefresh) {
+        setTimeout(() => {
+          fetchWeeklyGoals();
+        }, 500);
+      }
+    });
+
+    websocketClient.on('co2-data-added', (data) => {
+      if (data.streak?.isNewRecord) {
+        const streakMessage = `🔥 New streak record! ${data.streak.current} days!`;
+        
+        setRealTimeUpdates(prev => [...prev, {
+          id: Date.now(),
+          type: 'streak-record',
+          message: streakMessage,
+          timestamp: new Date().toLocaleTimeString(),
+          data: data
+        }]);
+
+        handleToast(streakMessage, "success");
+      }
+    });
+
+    websocketClient.on('connected', () => {
+      handleToast("Live dashboard updates activated", "success");
+    });
+
+    websocketClient.on('connection-lost', () => {
+      handleToast("Live updates paused", "error");
+    });
+
+  }, [autoRefresh, handleToast, webSocketConnected]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setRealTimeUpdates(prev => 
+        prev.filter(update => 
+          Date.now() - update.id < 30000 
+        )
+      );
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (isLoggedIn && webSocketConnected) {
+      setupWebSocketHandlers();
+    }
+
+    return () => {
+      if (websocketClient) {
+        websocketClient.off('co2-data-added');
+        websocketClient.off('goal-completed');
+        websocketClient.off('goal-progress-updated');
+        websocketClient.off('connected');
+        websocketClient.off('connection-lost');
+      }
+    };
+  }, [isLoggedIn, webSocketConnected, setupWebSocketHandlers]);
 
   const flattenedActivities = useMemo(() => {
     try {
@@ -263,6 +379,28 @@ const Home = () => {
     }
   }, [authToken, isLoggedIn, apiConfig, handleToast, clearAuthSession]);
 
+  const refreshDashboard = useCallback(async () => {
+    try {
+      setDashboardLoading(true);
+      const [data] = await Promise.all([
+        fetchTodaysCO2Data(),
+        fetchStreakData(),
+        fetchGlobalAvgCO2()
+      ]);
+      
+      if (data) {
+        updateDashboard(data);
+      }
+      setLastUpdated(new Date());
+      handleToast('Dashboard updated', 'success');
+    } catch (error) {
+      console.error('Error refreshing dashboard:', error);
+      handleToast('Failed to refresh dashboard', 'error');
+    } finally {
+      setDashboardLoading(false);
+    }
+  }, [fetchTodaysCO2Data, fetchStreakData, fetchGlobalAvgCO2, updateDashboard, handleToast]);
+
   const saveGoals = useCallback(async (updatedGoals) => {
     if (!authToken || !isLoggedIn) {
       handleToast('Please log in to save goals', 'error');
@@ -391,14 +529,7 @@ const Home = () => {
       if (response.status === 201 || response.status === 200) {
         handleToast(response.data?.message || 'Activities saved successfully', 'success');
 
-        const [updatedData] = await Promise.all([
-          fetchTodaysCO2Data(),
-          fetchStreakData()
-        ]);
-        
-        if (updatedData) {
-          updateDashboard(updatedData);
-        }
+        setActivityRows([]);
 
         setTimeout(() => navigate('/app/loggerChart'), 1500);
       }
@@ -417,27 +548,16 @@ const Home = () => {
     }
   }, [
     authToken, username, email, isLoggedIn, activityRows, flattenedActivities,
-    fetchTodaysCO2Data, fetchStreakData, updateDashboard, navigate, handleToast, 
-    apiConfig, clearAuthSession
+    navigate, handleToast, apiConfig, clearAuthSession
   ]);
 
-  const refreshDashboard = useCallback(async () => {
-    try {
-      const [data] = await Promise.all([
-        fetchTodaysCO2Data(),
-        fetchStreakData(),
-        fetchGlobalAvgCO2()
-      ]);
-      
-      if (data) {
-        updateDashboard(data);
-      }
-      handleToast('Dashboard updated', 'success');
-    } catch (error) {
-      console.error('Error refreshing dashboard:', error);
-      handleToast('Failed to refresh dashboard', 'error');
-    }
-  }, [fetchTodaysCO2Data, fetchStreakData, fetchGlobalAvgCO2, updateDashboard, handleToast]);
+  const toggleAutoRefresh = useCallback(() => {
+    setAutoRefresh(prev => !prev);
+    handleToast(
+      autoRefresh ? "Auto-refresh disabled" : "Auto-refresh enabled", 
+      "info"
+    );
+  }, [autoRefresh, handleToast]);
 
   useEffect(() => {
     if (authLoading) {
@@ -461,6 +581,7 @@ const Home = () => {
             if (data) updateDashboard(data);
           }),
         ]);
+        setLastUpdated(new Date());
       } catch (error) {
         handleToast('Failed to load dashboard data', 'error');
       } finally {
@@ -523,14 +644,58 @@ const Home = () => {
     <div className="min-h-screen bg-gray-600/30 py-8 px-4">
       <div className="max-w-7xl mx-auto">
         <div className="text-center text-white mb-8">
-          <h1 className="text-4xl font-bold mb-2">Welcome!</h1>
+          <h1 className="text-4xl font-bold mb-2">Welcome, {username}! 🌱</h1>
           <p className="text-lg">Track and reduce your carbon footprint</p>
+          
+          <div className="flex flex-wrap justify-center items-center mt-4 space-x-4">
+            <div className={`flex items-center px-3 py-1 rounded-full text-sm ${
+              webSocketConnected 
+                ? 'bg-green-500/20 text-green-400 border border-green-400/30' 
+                : 'bg-yellow-500/20 text-yellow-400 border border-yellow-400/30'
+            }`}>
+              <div className={`w-2 h-2 rounded-full mr-2 ${
+                webSocketConnected ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'
+              }`}></div>
+              {webSocketConnected ? 'Live Updates Active' : 'Real-time Offline'}
+            </div>
+            
+            {webSocketConnected && (
+              <div className={`flex items-center px-3 py-1 rounded-full text-sm cursor-pointer ${
+                autoRefresh 
+                  ? 'bg-blue-500/20 text-blue-400 border border-blue-400/30' 
+                  : 'bg-gray-500/20 text-gray-400 border border-gray-400/30'
+              }`} onClick={toggleAutoRefresh}>
+                <div className={`w-2 h-2 rounded-full mr-2 ${
+                  autoRefresh ? 'bg-blue-400 animate-pulse' : 'bg-gray-400'
+                }`}></div>
+                Auto-refresh: {autoRefresh ? 'ON' : 'OFF'}
+              </div>
+            )}
+
+            {lastUpdated && (
+              <div className="flex items-center px-3 py-1 rounded-full text-sm bg-purple-500/20 text-purple-400 border border-purple-400/30">
+                <div className="w-2 h-2 bg-purple-400 rounded-full mr-2"></div>
+                Updated: {lastUpdated.toLocaleTimeString()}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="grid lg:grid-cols-2 gap-8">
           <div className="space-y-8">
             <section className="bg-white rounded-2xl shadow-lg p-6">
-              <h2 className="text-2xl font-bold mb-4 text-gray-800">Weekly Goals</h2>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold text-gray-800">Weekly Goals</h2>
+                {webSocketConnected && (
+                  <div className={`flex items-center gap-2 text-sm ${
+                    autoRefresh ? 'text-green-600' : 'text-gray-500'
+                  }`}>
+                    <div className={`w-2 h-2 rounded-full ${autoRefresh ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+                    {autoRefresh ? 'Live' : 'Manual'}
+                  </div>
+                )}
+              </div>
+              
               {noGoalsError && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
                   <p className="text-yellow-800">{noGoalsError}</p>
@@ -557,7 +722,9 @@ const Home = () => {
 
               <div className="space-y-3">
                 {weeklyGoals.map((goal, idx) => (
-                  <div key={idx} className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                  <div key={idx} className={`flex items-center gap-3 p-4 rounded-lg hover:bg-gray-50 transition-colors ${
+                    goal.done ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'
+                  }`}>
                     <input
                       type="checkbox"
                       checked={Boolean(goal.done)}
@@ -585,11 +752,27 @@ const Home = () => {
             <section className="bg-white rounded-2xl shadow-lg p-6">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-bold text-gray-800">Your Dashboard</h2>
-                <button
-                  onClick={refreshDashboard}
-                  disabled={dashboardLoading}
-                  className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50 transition-colors font-semibold"
-                >Refresh Data</button>
+                <div className="flex items-center gap-3">
+                  {webSocketConnected && (
+                    <button
+                      onClick={toggleAutoRefresh}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                        autoRefresh
+                          ? 'bg-blue-100 text-blue-700 border border-blue-300'
+                          : 'bg-gray-100 text-gray-700 border border-gray-300'
+                      }`}
+                    >
+                      Auto: {autoRefresh ? 'ON' : 'OFF'}
+                    </button>
+                  )}
+                  <button
+                    onClick={refreshDashboard}
+                    disabled={dashboardLoading}
+                    className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50 transition-colors font-semibold"
+                  >
+                    {dashboardLoading ? 'Refreshing...' : 'Refresh Data'}
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4 mb-6">
@@ -627,6 +810,31 @@ const Home = () => {
                   </p>
                 </div>
               )}
+
+              {realTimeUpdates.length > 0 && (
+                <div className="mt-6 p-4 bg-gray-50 rounded-xl border">
+                  <h3 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                    Recent Activity
+                  </h3>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {realTimeUpdates.slice(-3).reverse().map((update) => (
+                      <div 
+                        key={update.id}
+                        className={`flex justify-between items-center p-2 rounded text-sm ${
+                          update.type === 'new-data' ? 'bg-green-50 text-green-700 border border-green-200' :
+                          update.type === 'goal-completed' ? 'bg-yellow-50 text-yellow-700 border border-yellow-200' :
+                          update.type === 'streak-record' ? 'bg-orange-50 text-orange-700 border border-orange-200' :
+                          'bg-blue-50 text-blue-700 border border-blue-200'
+                        }`}
+                      >
+                        <span>{update.message}</span>
+                        <span className="text-xs text-gray-500 whitespace-nowrap ml-2">{update.timestamp}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </section>
           </div>
 
@@ -655,7 +863,16 @@ const Home = () => {
                       ? 'bg-gray-400 cursor-not-allowed text-white'
                       : 'bg-green-500 hover:bg-green-600 text-white'
                   }`}
-                >Save & View Chart</button>
+                >
+                  {isPosting ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    'Save & View Chart'
+                  )}
+                </button>
               </div>
 
               {activityRows.length === 0 ? (

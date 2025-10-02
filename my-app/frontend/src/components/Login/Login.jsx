@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAppContext } from "../../context/authContext";
 import axios from "axios";
+import { websocketClient } from "../../services/websocketClient"; // Import WebSocket client
 
 const Login = () => {
     const { 
@@ -9,7 +10,8 @@ const Login = () => {
         updateAuthStatus, 
         authLoading,
         email: contextEmail,
-        setEmail: setContextEmail 
+        setEmail: setContextEmail,
+        setWebSocketConnected // Add this to your context
     } = useAppContext();
     
     const [email, setEmail] = useState(contextEmail || "");
@@ -33,6 +35,7 @@ const Login = () => {
         }
     }, [contextEmail, email]);
 
+    // In your Login.jsx - update the handleLogin function
     const handleLogin = useCallback(async (event) => {
         event.preventDefault();
         
@@ -57,12 +60,14 @@ const Login = () => {
             );
 
             if (data.authtoken && data.username && data.email && data.expiresAt) {
+                // ✅ UPDATED: Just call updateAuthStatus - WebSocket connection is handled there now
                 updateAuthStatus(
                     data.authtoken,
                     data.username,
                     data.email,
                     data.expiresAt.toString()
                 );
+                
                 setPassword("");
                 navigate("/app");
             } else if (data.error) {
@@ -88,6 +93,42 @@ const Login = () => {
             setIsSubmitting(false);
         }
     }, [email, password, backendUrl, loginEndpoint, updateAuthStatus, navigate]);
+
+    // ✅ NEW: Setup WebSocket handlers for real-time notifications
+    const setupWebSocketHandlers = useCallback(() => {
+        // Handle login success notification from server
+        websocketClient.on('login-success', (data) => {
+            console.log("Login success notification:", data);
+            // You could show a welcome back toast here
+            // showToast(`Welcome back! Last login: ${formatDate(data.previousLogin)}`);
+        });
+
+        // Handle any real-time notifications that might come immediately after login
+        websocketClient.on('welcome', (data) => {
+            console.log("Welcome notification:", data);
+            // This might be useful if the server sends a welcome message
+        });
+
+        // Handle connection status
+        websocketClient.on('connected', (data) => {
+            console.log("WebSocket connected with ID:", data.userId);
+        });
+
+        // Handle connection errors
+        websocketClient.on('error', (data) => {
+            console.error("WebSocket error:", data.message);
+        });
+    }, []);
+
+    // ✅ NEW: Clean up WebSocket connection on component unmount if login fails
+    useEffect(() => {
+        return () => {
+            // Only cleanup if we're not successfully logged in
+            if (!isLoggedIn && websocketClient) {
+                websocketClient.disconnect();
+            }
+        };
+    }, [isLoggedIn]);
 
     useEffect(() => {
         if (email && email !== contextEmail) {
