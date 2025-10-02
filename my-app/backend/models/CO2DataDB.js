@@ -4,7 +4,9 @@ import { pino } from "pino";
 
 config();
 
-let url = `${process.env.MONGODB_URI}`;
+let url = process.env.MONGODB_URI !== "mongodb://localhost:27017" ?
+ `${process.env.MONGODB_URI}` : 
+ "mongodb://localhost:27017";
 const logger = pino();
 
 async function connectToCO2DataDB() {

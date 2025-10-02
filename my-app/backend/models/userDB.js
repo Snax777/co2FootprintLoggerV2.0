@@ -3,7 +3,9 @@ import { config } from "dotenv";
 
 config();
 
-let url = `${process.env.MONGODB_URI}`;
+let url = process.env.MONGODB_URI !== "mongodb://localhost:27017" ?
+ `${process.env.MONGODB_URI}` : 
+ "mongodb://localhost:27017";
 
 async function connectToUserDB() {
     const clientInstance = new MongoClient(url);
