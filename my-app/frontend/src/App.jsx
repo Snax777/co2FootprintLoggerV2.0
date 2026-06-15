@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
 import Register from './components/Register/Register';
 import Login from './components/Login/Login';
@@ -10,6 +11,17 @@ import LandingPage from './components/LandingPage/LandingPage';
 import BackgroundLayout from "./components/BackgroundLayout/BackgroundLayout";
 
 function App() {
+  useEffect(() => {
+    const BACKEND_URL = 'https://co2logger-backend.onrender.com'; 
+    const pingInterval = setInterval(() => {
+      fetch(`${BACKEND_URL}/health`)
+        .then(res => console.log('Keep-alive ping OK'))
+        .catch(err => console.warn('Ping failed:', err));
+    }, 10 * 60 * 1000); 
+
+    return () => clearInterval(pingInterval); 
+  }, []);
+
   return (
     <>
       <BackgroundLayout>
