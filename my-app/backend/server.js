@@ -28,6 +28,11 @@ app.use('/api/account', userRoutes);
 app.use('/api/data', dataRoutes);
 app.use('/api/goals', goalRoutes);
 
+// API Health Check
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
 // Store connected clients
 const connectedClients = new Map();
 
