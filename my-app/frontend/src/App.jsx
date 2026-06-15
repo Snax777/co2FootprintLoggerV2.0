@@ -12,7 +12,7 @@ import BackgroundLayout from "./components/BackgroundLayout/BackgroundLayout";
 
 function App() {
   useEffect(() => {
-    const BACKEND_URL = 'https://co2logger-backend.onrender.com'; 
+    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL; 
     const pingInterval = setInterval(() => {
       fetch(`${BACKEND_URL}/health`)
         .then(res => console.log('Keep-alive ping OK'))
